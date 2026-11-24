@@ -1,0 +1,37 @@
+{
+  "name": "cortico-world-self-checkup",
+  "version": "1.0.0",
+  "type": "module",
+  "private": false,
+  "keywords": ["cortico-world", "cortico", "health", "personality", "local"],
+  "main": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "cortico": {
+    "kind": "world",
+    "api": 6,
+    "displayName": "体检报告",
+    "icon": "assets/cover.png",
+    "screenshots": ["assets/cover.png"],
+    "describe": "describe.json",
+    "webUiClient": "dist/webui.js",
+    "webUiStyle": "dist/webui.css",
+    "tags": ["health", "personality", "local"],
+    "locales": {
+      "zh": {
+        "displayName": "体检报告",
+        "description": "实用运行体检 + 趣味人格画像：查看稳定性、速度、缓存、上下文、交接和记忆，发现值得留意的变化；再收集称号、标签、近期观察与趣味名片。两份报告分开呈现，不自动修改配置。读取范围、写入位置与可选 AI 名片行为见 README。"
+      },
+      "en": {
+        "displayName": "Checkup",
+        "description": "A practical runtime checkup with a playful personality profile. Review stability, latency, cache, context, handoffs and memory, then explore nicknames, labels, recent observations and an optional profile card. Reports stay separate and settings are not changed automatically. See the README for data access, storage and optional AI-card details."
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test \"tests/*.test.mjs\"",
+    "preview": "node tools/preview.mjs",
+    "smoke": "tsx tools/smoke-world.mjs"
+  },
+  "engines": { "node": ">=22" },
+  "license": "MIT"
+}
