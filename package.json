@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-self-checkup",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "private": false,
   "keywords": [
@@ -18,7 +18,9 @@
     "describe.json",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "assets/icon.png",
+    "assets/screenshot-1.png"
   ],
   "main": "./src/index.ts",
   "exports": {
@@ -27,10 +29,10 @@
   "cortico": {
     "kind": "world",
     "api": 6,
-    "displayName": "体检报告",
-    "icon": "assets/cover.png",
+    "displayName": "鱼鱼体检",
+    "icon": "assets/icon.png",
     "screenshots": [
-      "assets/cover.png"
+      "assets/screenshot-1.png"
     ],
     "describe": "describe.json",
     "webUiClient": "dist/webui.js",
@@ -41,11 +43,11 @@
     ],
     "locales": {
       "zh": {
-        "displayName": "体检报告",
+        "displayName": "鱼鱼体检",
         "description": "实用运行体检 + 趣味人格画像：查看稳定性、速度、缓存、上下文、交接和记忆，发现值得留意的变化；再收集称号、标签、近期观察与趣味名片。两份报告分开呈现，不自动修改配置。读取范围、写入位置与可选 AI 名片行为见 README。"
       },
       "en": {
-        "displayName": "Checkup",
+        "displayName": "Fish Checkup",
         "description": "A practical runtime checkup with a playful personality profile. Review stability, latency, cache, context, handoffs and memory, then explore nicknames, labels, recent observations and an optional profile card. Reports stay separate and settings are not changed automatically. See the README for data access, storage and optional AI-card details."
       }
     }

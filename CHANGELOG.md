@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- 市场显示名改为「鱼鱼体检」/ Fish Checkup。
+- 新增市场图标 `assets/icon.png`（512×512、382 KB，符合索引仓 512 KB 上限）与截图 `assets/screenshot-1.png`。
+- README 封面改为绝对地址，npm 页面不再破图。
+
 ## 1.0.0
 
 GitHub 首发版本，在 0.2.8 基础上整理为可公开发布的包。
