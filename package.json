@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-self-checkup",
-  "version": "1.0.3",
+  "version": "1.0.6",
   "type": "module",
   "private": false,
   "keywords": [
@@ -20,7 +20,8 @@
     "describe.json",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "assets/screenshot-2.png"
   ],
   "main": "./src/index.ts",
   "exports": {
@@ -32,23 +33,25 @@
     "displayName": "鱼鱼体检",
     "icon": "assets/icon.png",
     "screenshots": [
-      "assets/screenshot-1.png"
+      "assets/screenshot-1.png",
+      "assets/screenshot-2.png"
     ],
     "describe": "describe.json",
     "webUiClient": "dist/webui.js",
     "webUiStyle": "dist/webui.css",
     "tags": [
       "diagnostics",
+      "memory",
       "companion"
     ],
     "locales": {
       "zh": {
         "displayName": "鱼鱼体检",
-        "description": "实用运行体检 + 趣味人格画像：查看稳定性、速度、缓存、上下文、交接和记忆，发现值得留意的变化；再收集称号、标签、近期观察与趣味名片。两份报告分开呈现，不自动修改配置。读取范围、写入位置与可选 AI 名片行为见 README。"
+        "description": "她最近是跑得慢了，还是心思变了？先别急着重装，做一次体检。硬件健康看六项：稳定性、响应速度、缓存与成本、上下文配置、交接健康、记忆健康，每项都有分数、趋势和判断依据——是哪次交接拖慢的、哪段记忆在漏，都指给你看。另一份是性格侧写：28 道情境题她自己答，再拿真实行为痕迹反查，开口习惯、记忆线索、情绪起伏、日常节奏，最后给一张名片，带称号、四个短标签和一段近期观察。两份报告分开算、不合并总分，全程只读不改配置。"
       },
       "en": {
         "displayName": "Fish Checkup",
-        "description": "A practical runtime checkup with a playful personality profile. Review stability, latency, cache, context, handoffs and memory, then explore nicknames, labels, recent observations and an optional profile card. Reports stay separate and settings are not changed automatically. See the README for data access, storage and optional AI-card details."
+        "description": "Is she slowing down, or has something about her changed? Run a checkup before you reinstall. The hardware half scores six dimensions — stability, latency, cache and cost, context config, handoff health, memory health — each with a trend and the evidence behind it, so you can see which handoff dragged or where memory is leaking. The other half is playful: 28 situational questions she answers herself, cross-checked against real behavioural traces (opening habits, memory cues, mood swings, daily rhythm) and turned into a card with a title, four labels and a recent observation. Two separate reports, never merged into one score, read-only throughout."
       }
     }
   },
@@ -60,5 +63,6 @@
   "engines": {
     "node": ">=22"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "description": "她最近是跑得慢了，还是心思变了？先别急着重装，做一次体检。硬件健康看六项：稳定性、响应速度、缓存与成本、上下文配置、交接健康、记忆健康，每项都有分数、趋势和判断依据——是哪次交接拖慢的、哪段记忆在漏，都指给你看。另一份是性格侧写：28 道情境题她自己答，再拿真实行为痕迹反查，开口习惯、记忆线索、情绪起伏、日常节奏，最后给一张名片，带称号、四个短标签和一段近期观察。两份报告分开算、不合并总分，全程只读不改配置。"
 }
