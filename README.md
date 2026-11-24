@@ -2,7 +2,7 @@
 
 > 看看她最近运行得顺不顺，也发现她有哪些可爱的性格小特点。
 
-![鱼鱼体检封面](assets/cover.png)
+![鱼鱼体检封面](https://raw.githubusercontent.com/hanwen27/fish-checkup/main/assets/cover.png)
 
 「鱼鱼体检」把桌宠的**运行状态**和**趣味人格画像**放在一起，但分别呈现：一边帮助你看出哪里值得留意，一边收集关于她的小观察。
 

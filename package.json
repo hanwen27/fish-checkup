@@ -1,9 +1,15 @@
 {
   "name": "cortico-world-self-checkup",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "private": false,
-  "keywords": ["cortico-world", "cortico", "health", "personality", "checkup"],
+  "keywords": [
+    "cortico-world",
+    "cortico",
+    "health",
+    "personality",
+    "checkup"
+  ],
   "files": [
     "src",
     "dist",
@@ -15,17 +21,24 @@
     "LICENSE"
   ],
   "main": "./src/index.ts",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "cortico": {
     "kind": "world",
     "api": 6,
     "displayName": "体检报告",
     "icon": "assets/cover.png",
-    "screenshots": ["assets/cover.png"],
+    "screenshots": [
+      "assets/cover.png"
+    ],
     "describe": "describe.json",
     "webUiClient": "dist/webui.js",
     "webUiStyle": "dist/webui.css",
-    "tags": ["diagnostics", "companion"],
+    "tags": [
+      "diagnostics",
+      "companion"
+    ],
     "locales": {
       "zh": {
         "displayName": "体检报告",
@@ -42,6 +55,8 @@
     "preview": "node tools/preview.mjs",
     "smoke": "node --experimental-strip-types tools/smoke-world.mjs"
   },
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "license": "MIT"
 }
