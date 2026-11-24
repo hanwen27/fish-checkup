@@ -767,7 +767,17 @@
 .sc-profile-card .sc-dim { margin-top: 8px; }
 .sc-profile-card .sc-dim-sum { flex-wrap: wrap; }
 .sc-profile-card .sc-dim-head:empty { display: none; }
-.sc-profile-card .sc-ev-v { text-align: start; white-space: normal; }
+.sc-profile-evidence-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-inline-start: 18px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--sc-fg);
+  overflow-wrap: anywhere;
+}
+.sc-profile-evidence-list li::marker { color: var(--sc-accent); }
 
 .sc-profile-hero { position: relative; isolation: isolate; overflow: hidden; }
 .sc-profile-hero::after {

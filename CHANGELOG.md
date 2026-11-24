@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.3
+
+上游 0.2.11 并入。版本号规则：常规迭代走 1.0.x，只有大改动才起 2.0。
+
+- 新增 `src/behavior.mjs`、`src/card-profile.mjs`、`src/card-voice-details.mjs`、`src/fish-topics.mjs`、`src/fish-voice.mjs`：行为痕迹交叉验证与趣味名片、语音细节。
+- 人格测试扩到 28 题，四字母类型与标签分开统计；重复邀请有节流窗口，重载后不重复触发。
+- `assets/personality/` 新增四张状态插画（curious / happy / shy / sleepy）。
+- 市场标签固定为 `diagnostics` + `companion`；测试同步改为断言 `diagnostics`。
+- 212 项测试全绿，装配层冒烟通过。
+
 ## 1.0.2
 
 - 市场显示名改为「鱼鱼体检」/ Fish Checkup。

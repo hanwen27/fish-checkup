@@ -390,7 +390,7 @@ export class CheckupWorld implements World {
     }
     if (method === 'report') {
       const report = this.report(pick(String(args?.[0] ?? 'zh')));
-      if (panel === 'persona' && this.host?.cognition && !('custom' in report.personality.profile) && report.personality.profile.recent.some((row) => !row.empty)) {
+      if (panel === 'persona' && this.host?.cognition && !('custom' in report.personality.profile) && (report.personality.profile.cues?.length || report.personality.profile.recent.some((row) => !row.empty))) {
         Object.assign(report.personality.profile, { canGenerate: true });
       }
       return { ok: true, report };
@@ -399,9 +399,9 @@ export class CheckupWorld implements World {
       const lang = pick(String(args?.[0] ?? 'zh'));
       const { profile } = this.report(lang).personality;
       const rows = profile.recent.filter((row) => !row.empty);
-      const key = JSON.stringify(rows.map(({ id, summary }) => [id, summary]));
+      const key = profile.copyKey;
       if (method === 'cardPrompt') return { ok: true, key, prompt: cardPrompt(profile, lang) };
-      if (!rows.length || key !== args?.[1]) return { ok: false, error: 'stale' };
+      if ((!rows.length && !profile.cues?.length) || key !== args?.[1]) return { ok: false, error: 'stale' };
       const text = args?.[2];
       if (typeof text !== 'string' || text.length > 4000) return { ok: false, error: 'invalid' };
       const copy = readProfileCopy(text, rows.map(({ id }) => id), profile.candidates);
@@ -480,8 +480,8 @@ export class CheckupWorld implements World {
     if (!cognition) return null;
     const { profile } = this.report(lang).personality;
     const rows = profile.recent.filter((row) => !row.empty).map(({ id, summary }) => [id, summary]);
-    const key = JSON.stringify(rows);
-    if (key !== expectedKey || !rows.length) return null;
+    const key = profile.copyKey;
+    if (key !== expectedKey || (!rows.length && !profile.cues?.length)) return null;
     const cached = this.profileCopyCache.get(lang);
     if (cached?.key === key) return cached.copy;
     const brief = cardPrompt(profile, lang);
@@ -511,7 +511,7 @@ export class CheckupWorld implements World {
     });
     const profile = report.personality.profile;
     const saved = this.quiz.profileCard?.[lang];
-    const key = JSON.stringify(profile.recent.filter((row) => !row.empty).map(({ id, summary }) => [id, summary]));
+    const key = profile.copyKey;
     if (saved?.key === key) Object.assign(profile, {
       title: saved.copy.title, label: saved.copy.label, description: saved.copy.description,
       tags: saved.copy.tags, custom: true,

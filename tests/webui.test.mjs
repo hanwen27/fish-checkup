@@ -374,7 +374,7 @@ test('invoke 抛异常也不崩', async () => {
 test('新版人格面板展示画像与近期图标，奇遇小测独立折叠', async () => {
   const report = fullReport();
   const speech = {
-    id: 'speech', title: '开口习惯', lines: ['50 条判断里，有 20 次倾向接话。'],
+    id: 'speech', title: '开口习惯', value: '50.5 字', lines: ['50 条判断里，有 20 次倾向接话。'],
     summary: '在群里被叫到时，更常选择回应。',
   };
   report.personality.profile = {
@@ -382,7 +382,12 @@ test('新版人格面板展示画像与近期图标，奇遇小测独立折叠',
     evidence: [speech], recent: [speech],
   };
   const ctx = ctxFor('persona', { report });
+  const container = { scrollTop: 420, parentElement: null };
+  ctx.root.parentElement = container;
+  ctx.root.ownerDocument.scrollingElement = { scrollTop: 120 };
   await bundle.panels.persona.mount(ctx);
+  assert.equal(container.scrollTop, 0);
+  assert.equal(ctx.root.ownerDocument.scrollingElement.scrollTop, 0);
   const text = textOf(ctx.root);
   for (const phrase of ['憨着', '性格分析', '近 14 天', '最近的她', '20 次倾向接话', '奇遇小测']) {
     assert.ok(text.includes(phrase), phrase);
@@ -391,7 +396,11 @@ test('新版人格面板展示画像与近期图标，奇遇小测独立折叠',
   const details = findByTag(ctx.root, 'details');
   const analysis = details.find((node) => textOf(node).includes('20 次倾向接话'));
   const quiz = details.find((node) => textOf(node).includes('奇遇小测'));
-  assert.equal(analysis.open, true);
+  assert.ok(!analysis.open, '分析进入时折叠');
+  const evidence = findByTag(analysis, 'ul').find((node) => node.className.includes('sc-profile-evidence-list'));
+  assert.ok(evidence, '心理健康的长句单栏展示');
+  assert.deepEqual(findByTag(evidence, 'li').map(textOf), ['50 条判断里，有 20 次倾向接话。']);
+  assert.match(textOf(findByTag(analysis, 'summary')[0]), /50\.5 字/);
   assert.ok(!quiz.open);
   const pics = findByTag(ctx.root, 'img');
   assert.ok(pics.some((image) => image.getAttribute('src').startsWith('data:image/png;base64,')));

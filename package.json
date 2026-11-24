@@ -1,26 +1,26 @@
 {
   "name": "cortico-world-self-checkup",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "private": false,
   "keywords": [
     "cortico-world",
     "cortico",
-    "health",
-    "personality",
-    "checkup"
+    "checkup",
+    "diagnostics",
+    "companion"
   ],
   "files": [
     "src",
     "dist",
-    "assets/cover.png",
+    "assets/personality",
     "assets/quiz.zh.json",
+    "assets/icon.png",
+    "assets/screenshot-1.png",
     "describe.json",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE",
-    "assets/icon.png",
-    "assets/screenshot-1.png"
+    "LICENSE"
   ],
   "main": "./src/index.ts",
   "exports": {

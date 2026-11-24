@@ -1,4 +1,5 @@
 import { finishFishTopics, observeFishTopics } from './fish-topics.mjs';
+import { observeVoice, summarizeVoice } from './fish-voice.mjs';
 
 const PLAY_WORLDS = {
   terrarium: ['鱼的小世界', 'Terrarium'],
@@ -18,18 +19,22 @@ export function sampleRecentActivity(rows) {
   const lengths = [];
   const sentDays = new Set();
   const topics = new Map();
+  const voice = new Map();
   for (const row of rows) {
     if (!row || row.failed) continue;
     if (Object.hasOwn(PLAY_WORLDS, row.mod)) {
       plugins.set(row.mod, (plugins.get(row.mod) ?? 0) + 1);
     }
-    if (row.mod !== 'qqbot' || row.tool !== 'qq_send' || typeof row.args?.text !== 'string') continue;
+    const sent = (row.mod === 'qqbot' && row.tool === 'qq_send')
+      || (row.mod === 'console' && row.tool === 'console_send');
+    if (!sent || typeof row.args?.text !== 'string') continue;
     const text = row.args.text.normalize('NFKC').trim();
     if (!text) continue;
     lengths.push(Array.from(text).length);
     const day = row.ts.slice(0, 10);
     sentDays.add(day);
     observeFishTopics(topics, text, day);
+    observeVoice(voice, text, day);
     const lower = text.toLowerCase();
     const opener = OPENERS.find((term) => {
       const t = term.toLowerCase();
@@ -45,6 +50,7 @@ export function sampleRecentActivity(rows) {
   const half = Math.floor(lengths.length / 2);
   return {
     messages: lengths.length,
+    voice: summarizeVoice(voice, lengths.length),
     topics: finishFishTopics(topics),
     sentDays: sentDays.size,
     medianLength: lengths.length ? (lengths[half] + lengths[Math.floor((lengths.length - 1) / 2)]) / 2 : null,

@@ -50,41 +50,7 @@ const rate = (bucket) => bucket.replies / bucket.total;
 const percent = (value) => Math.round(value * 100);
 const strongContrast = (a, b) => ready(a, MIN_GROUP) && ready(b, MIN_GROUP) && Math.abs(rate(a) - rate(b)) >= 0.2;
 
-function playfulHeadline(stats, activity, emotion, entries) {
-  const all = stats?.all;
-  const longMessage = activity?.messages >= 8 && activity.medianLength >= 50;
-  const shortMessage = activity?.messages >= 8 && activity.medianLength <= 18;
-  if (ready(all, MIN_DECISIONS) && rate(all) <= 0.25) {
-    if (longMessage) return '平时少冒泡，一开口就是一小段话。';
-    if (shortMessage) return '难得冒个泡，也就说上几个字。';
-  }
-  if (strongContrast(stats?.addressed, stats?.unaddressed)) {
-    return rate(stats.addressed) > rate(stats.unaddressed)
-      ? '在群里不急着冒泡，叫到名字就更容易接上话。'
-      : '不用特意叫她，群聊里她也会自己冒个泡。';
-  }
-  const word = activity?.opener?.word;
-  const play = activity?.plugin;
-  if (word && play?.count >= 3) return `偶尔用「${word}」开场，最近常在「${play.name[0]}」出没。`;
-  if (ready(all, MIN_DECISIONS) && rate(all) >= 0.65 && shortMessage) return '接话挺快活，一串泡泡都短短的。';
-  if (entries?.profileRecalled >= 3 && longMessage) return '偶尔翻翻旧记忆，聊起来又能说上一小段。';
-  if (longMessage && play?.count >= 3) return `消息里常有一小段话，最近也常往「${play.name[0]}」跑。`;
-  if (word) return `偶尔一句「${word}」，这只小鱼就冒了个泡。`;
-  if (longMessage) return '她一发来消息，往往就有一小段话。';
-  if (ready(all, MIN_DECISIONS) && rate(all) <= 0.25) return '她常把话头留在水面上，自己少冒泡。';
-  if (emotion?.count >= 15 && emotion.profileDays >= MIN_DAYS && emotion.arousalSd <= 0.12 && entries?.profileCount >= 15) {
-    return '小本子在添页，心情的水面倒挺平。';
-  }
-  if (strongContrast(stats?.day, stats?.night)) {
-    return rate(stats.night) > rate(stats.day) ? '这只鱼入夜后，更容易聊上两句。' : '白天碰见她，更容易等到一个泡泡。';
-  }
-  if (ready(all, MIN_DECISIONS) && rate(all) >= 0.65) return '有话飘过来，她常会接上去。';
-  if (entries?.profileCount >= 15 && entries.profileDays >= MIN_DAYS) return '最近，她的小本子又添了不少页。';
-  if (play?.count >= 3) return `最近，这只鱼常往「${play.name[0]}」逛。`;
-  return '再等几个泡泡，就能多认识她一点。';
-}
-
-export function buildProfile(memory, language, activity) {
+export function buildProfile(memory, language, activity, quiz) {
   const zh = language === 'zh';
   const days = memory?.profileDays ?? null;
   const stats = memory?.profileDecisions;
@@ -168,8 +134,8 @@ export function buildProfile(memory, language, activity) {
     finding('rhythm', zh ? '日常节奏' : 'Daily rhythm', rhythm, rhythmSummary, rhythmRank),
   ];
   if (activity?.messages) {
-    speech.unshift(zh ? `采样到 ${activity.messages} 条成功发出的 QQ 消息，单条长度中位数 ${activity.medianLength} 字。`
-      : `${activity.messages} sampled QQ messages sent successfully, with a median length of ${activity.medianLength} characters.`);
+    speech.unshift(zh ? `采样到 ${activity.messages} 条成功发出的对话消息，单条长度中位数 ${activity.medianLength} 字。`
+      : `${activity.messages} sampled messages sent successfully, with a median length of ${activity.medianLength} characters.`);
   }
   if (activity?.opener) {
     const { word, count } = activity.opener;
@@ -184,8 +150,8 @@ export function buildProfile(memory, language, activity) {
     {
       value: activity?.messages ? (zh ? `${activity.medianLength} 字` : `${activity.medianLength} chars`)
         : stats?.all?.total ? `${percent(rate(stats.all))}%` : null,
-      formula: zh ? '发言长度取成功发送的 QQ 消息字数中位数。接话率另用影子判断里选择回应或追问的次数除以有效判断次数。'
-        : 'Median length of successfully sent QQ messages. Reply tendency is counted separately from eligible shadow decisions.',
+      formula: zh ? '发言长度取成功发送的 Coo 对话或 QQ 消息字数中位数。接话率另用影子判断里选择回应或追问的次数除以有效判断次数。'
+        : 'Median length of successfully sent Coo console or QQ messages. Reply tendency is counted separately from eligible shadow decisions.',
       meaning: zh ? '一起看说了多长、何时倾向接话，能分清她是否少开口却常常说得详细。'
         : 'Length and reply tendency show different sides of how she communicates.',
     },
@@ -265,14 +231,13 @@ export function buildProfile(memory, language, activity) {
   const main = observations[0]?.summary ?? facts[0]?.summary;
   const additional = observations.find((item) => item.id !== observations[0]?.id)?.summary
     ?? facts.find(({ summary }) => summary !== main)?.summary;
-  const title = zh ? playfulHeadline(stats, activity, emotion, entries)
+  const title = zh ? '再等几个泡泡，就能多认识她一点。'
     : main && additional ? `${main.replace(/\.$/u, '')}, and ${additional[0].toLowerCase()}${additional.slice(1)}`
       : main ?? 'There are too few recent records to describe her habits.';
-  return {
-    days, evidence, recent,
-    title,
-    ...buildCardDetails({ stats, activity, emotion, entries, recent, language }),
-  };
+  const card = buildCardDetails({ stats, activity, emotion, entries, recent, quiz, language });
+  const profile = { days, evidence, recent, title, ...card };
+  const rows = recent.filter((row) => !row.empty).map(({ id, summary }) => [id, summary]);
+  return { ...profile, copyKey: JSON.stringify([rows, profile.title, profile.label, profile.description, card.candidates]) };
 }
 
 export function readProfileCopy(text, ids, candidates) {
@@ -286,7 +251,7 @@ export function readProfileCopy(text, ids, candidates) {
     const copy = { title: parsed.title.trim(), recent: Object.fromEntries(ids.map((id) => [id, parsed.recent[id].trim()])) };
     if (!candidates) return copy;
     if (!valid(parsed.label, 35) || !valid(parsed.description, 200) || !Array.isArray(parsed.tags)
-      || parsed.tags.length > 4 || new Set(parsed.tags).size !== parsed.tags.length
+      || parsed.tags.length < 3 || parsed.tags.length > 4 || new Set(parsed.tags).size !== parsed.tags.length
       || !parsed.tags.every((tag) => candidates.includes(tag))) return null;
     return { ...copy, label: parsed.label.trim(), description: parsed.description.trim(), tags: parsed.tags };
   } catch {

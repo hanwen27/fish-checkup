@@ -84,3 +84,31 @@ test('重复话题按消息计数，且需要跨天出现', () => {
   ]);
   assert.deepEqual(activity.topics.map(({ id, count, days }) => [id, count, days]), [['drawing', 3, 2]]);
 });
+
+test('同样常吃饭的鱼，按各自语气与小测生成不同的称号、评语和描述', () => {
+  const chat = (kind) => sampleRecentActivity(Array.from({ length: 8 }, (_, i) => ({
+    ts: `2026-11-${i < 4 ? '10' : '11'}T08:00:00Z`, mod: 'console', tool: 'console_send',
+    args: { text: kind === 'care' ? '辛苦了，别着急，我陪你慢慢来。' : '先整理材料，再分成三步把任务讲清楚。' },
+  })));
+  const food = { name: ['吃饭', 'Meals'], count: 20 };
+  const gentle = buildProfile({}, 'zh', { ...chat('care'), plugin: food }, { axes: { TF: 20 }, flags: [] });
+  const organized = buildProfile({}, 'zh', { ...chat('steps'), plugin: food }, { axes: { JP: 90 }, flags: [] });
+  for (const key of ['label', 'title', 'description']) {
+    assert.notEqual(gentle[key], organized[key], key);
+    assert.doesNotMatch(gentle[key] + organized[key], /吃饭/);
+  }
+  assert.ok(gentle.tags.includes('暖心派'));
+  assert.ok(organized.tags.includes('条理控'));
+  assert.ok(gentle.tags.length >= 3 && organized.tags.length >= 3);
+  assert.equal(buildProfile({}, 'zh', null).tags.length, 3);
+});
+
+test('AI 名片要求三个不同标签，并允许四个', () => {
+  const choices = ['一', '二', '三', '四'];
+  const draft = { title: '有话慢慢说', label: '从容派', description: '说话喜欢有来有往。', recent: {} };
+  const read = (tags) => readProfileCopy(JSON.stringify({ ...draft, tags }), [], choices);
+  assert.equal(read(choices.slice(0, 2)), null);
+  assert.equal(read(['一', '一', '三']), null);
+  assert.equal(read(choices.slice(0, 3)).tags.length, 3);
+  assert.equal(read(choices).tags.length, 4);
+});

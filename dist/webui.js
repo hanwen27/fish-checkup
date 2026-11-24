@@ -437,7 +437,7 @@ function dimRow(d, t, lang) {
   sum.append(el('span', 'sc-dim-title', d.title));
 
   const scoreBox = el('span', 'sc-dim-score');
-  scoreBox.append(el('span', scoreClass(d.state), Number.isFinite(d.score) ? String(d.score) : '—'));
+  scoreBox.append(el('span', scoreClass(d.state), d.metricValue ?? (Number.isFinite(d.score) ? String(d.score) : '—')));
   sum.append(scoreBox);
 
   const pts = (d.series || []).map((p) => (Number.isFinite(p.score) ? p.score : null));
@@ -469,15 +469,21 @@ function dimRow(d, t, lang) {
 
   const body = el('div', 'sc-dim-body');
   body.append(el('div', 'sc-label', t.evidence));
-  const table = el('div', 'sc-ev');
-  for (const e of d.evidence || []) {
-    const line = el('div', 'sc-ev-row');
-    line.append(el('span', 'sc-ev-k', e.label));
-    line.append(el('span', 'sc-ev-v', String(e.value)));
-    if (e.hint) line.append(el('span', 'sc-ev-h', e.hint));
-    table.append(line);
+  if (d.evidenceLines) {
+    const list = el('ul', 'sc-profile-evidence-list');
+    for (const line of d.evidenceLines) list.append(el('li', '', line));
+    body.append(list);
+  } else {
+    const table = el('div', 'sc-ev');
+    for (const e of d.evidence || []) {
+      const line = el('div', 'sc-ev-row');
+      line.append(el('span', 'sc-ev-k', e.label));
+      line.append(el('span', 'sc-ev-v', String(e.value)));
+      if (e.hint) line.append(el('span', 'sc-ev-h', e.hint));
+      table.append(line);
+    }
+    body.append(table);
   }
-  body.append(table);
   body.append(el('div', 'sc-label', t.formula));
   body.append(el('div', 'sc-prose', d.formula));
   body.append(el('div', 'sc-label', t.meaning));
@@ -1023,7 +1029,7 @@ function cardEditor(ctx, panelActions, zh) {
       if (!response?.ok) {
         status.textContent = response?.error === 'stale'
           ? (zh ? '记录已更新，请重新获取提示词。' : 'Records changed. Get a fresh prompt.')
-          : (zh ? '请检查 JSON 格式，以及标签是否在本次可选项内。' : 'Check the JSON format and allowed tags.');
+          : (zh ? '请检查 JSON 格式，并挑选本次可选项内的三到四枚标签。' : 'Check the JSON format and allowed tags.');
         return;
       }
       await panelActions.load();
@@ -1072,7 +1078,6 @@ function renderPersona(ctx, report, panelActions) {
   if (profile.days) analysisHead.append(el('span', 'sc-profile-period', zh ? `近 ${profile.days} 天` : `Last ${profile.days} days`));
   analysis.append(analysisHead);
   const missing = zh ? '近期没有足够的记录。' : 'Not enough recent records.';
-  const firstWithEvidence = profile.evidence.find(({ lines }) => lines.length);
   for (const item of profile.evidence) {
     const row = dimRow({
       title: item.title,
@@ -1080,13 +1085,10 @@ function renderPersona(ctx, report, panelActions) {
       metricValue: item.value ?? '—',
       hideTrend: true,
       headline: item.summary || '',
-      evidence: (item.lines.length ? item.lines : [missing]).map((line, i) => ({
-        label: `${i + 1}`, value: line,
-      })),
+      evidenceLines: item.lines.length ? item.lines : [missing],
       formula: item.formula ?? missing,
       meaning: item.meaning ?? missing,
     }, t, ctx.lang);
-    row.open = item === firstWithEvidence;
     analysis.append(row);
   }
   const recent = el('section', 'sc-profile-card sc-profile-recent');
@@ -1119,7 +1121,7 @@ function renderPersona(ctx, report, panelActions) {
   quizBody.append(button, status, creativeCard(ctx, p, t, panelActions));
   quiz.append(quizBody);
   root.append(quiz);
-  if (profile.candidates && profile.recent.some((item) => !item.empty)) root.append(cardEditor(ctx, panelActions, zh));
+  if (profile.candidates && (profile.cues?.length || profile.recent.some((item) => !item.empty))) root.append(cardEditor(ctx, panelActions, zh));
   return root;
 }
 
@@ -1316,6 +1318,14 @@ async function copyReport(ctx, btn, t) {
   }
 }
 
+function resetPanelScroll(root) {
+  for (let node = root; node; node = node.parentElement ?? node.getRootNode?.().host) {
+    if (node.scrollTop > 0) node.scrollTop = 0;
+  }
+  const viewport = root.ownerDocument?.scrollingElement;
+  if (viewport?.scrollTop > 0) viewport.scrollTop = 0;
+}
+
 function makePanel(render) {
   return {
     async mount(ctx) {
@@ -1324,6 +1334,8 @@ function makePanel(render) {
       const holder = el('div', 'sc-holder');
       ctx.root.append(holder);
       const state = { report: null };
+      const isPersona = render === renderPersona;
+      if (isPersona) resetPanelScroll(ctx.root);
 
       const paint = () => {
         const t = T[ctx.lang];
@@ -1354,7 +1366,7 @@ function makePanel(render) {
       }
 
       async function applyProfileCopy(report) {
-        const key = JSON.stringify(report.personality.profile.recent.filter((row) => !row.empty).map(({ id, summary }) => [id, summary]));
+        const key = report.personality.profile.copyKey;
         try {
           const res = await ctx.invoke('profileCopy', [ctx.lang, key]);
           if (state.report !== report || ctx.signal?.aborted || !res?.copy) return;
@@ -1379,6 +1391,7 @@ function makePanel(render) {
 
       paint();
       await load();
+      if (isPersona && !ctx.signal?.aborted) resetPanelScroll(ctx.root);
     },
   };
 }

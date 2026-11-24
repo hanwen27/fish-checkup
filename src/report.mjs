@@ -52,7 +52,7 @@ export function buildReport(snapshot, {
   const tagResult = collectTags(tagStats);
 
   const personality = {
-    profile: buildProfile(snapshot?.memory, lang, snapshot?.activity),
+    profile: buildProfile(snapshot?.memory, lang, snapshot?.activity, quiz),
     taken: !!quiz,
     takenAt: quizTakenAt,
     letters: quiz?.letters ?? null,
