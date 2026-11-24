@@ -525,3 +525,10 @@ test('所有维度都带 series / delta 字段（UI 不用判 undefined）', () 
     assert.ok('delta' in d, `${d.id} 缺 delta`);
   }
 });
+
+test('记忆：存在工作区、缺检索体系时说明原因并不打分', () => {
+  const d = memoryHealth({ ok: false, workspacePath: 'w', workspaceExists: true, path: 'w/memory', reason: 'missing' });
+  assert.equal(d.score, null);
+  assert.match(d.headline, /已找到记忆工作区/);
+  assert.equal(d.evidence.find(({ label }) => label === '日志位置').value, 'w/memory');
+});

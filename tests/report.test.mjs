@@ -364,7 +364,7 @@ test('package.json 的 cortico 声明符合框架约定', () => {
   assert.equal(pkg.cortico.api, 6);
   assert.equal(pkg.main, './src/index.ts');
   assert.ok(pkg.cortico.webUiClient.endsWith('webui.js'));
-  assert.ok(pkg.cortico.tags.includes('health'));
+  assert.ok(pkg.cortico.tags.includes('diagnostics'));
   assert.equal(statSync(join(HERE, pkg.cortico.webUiClient)).isFile(), true);
   assert.equal(statSync(join(HERE, pkg.cortico.webUiStyle)).isFile(), true);
 });

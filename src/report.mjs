@@ -97,7 +97,7 @@ function localizeDimensions(dims, lang) {
   return dims.map((d) => ({
     ...d,
     title: DIM_TITLES.en[d.id] ?? d.title,
-    formula: DIM_FORMULAS.en[d.id] ?? d.formula,
+    formula: d.formulaEn ?? DIM_FORMULAS.en[d.id] ?? d.formula,
     stateLabel: STATES.en[d.state] ?? d.state,
   }));
 }

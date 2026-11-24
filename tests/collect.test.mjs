@@ -273,3 +273,96 @@ test('collectAll：只读，不写任何文件到被扫描的目录', () => {
     assert.equal(readdirSync(t.botDir).includes('self-checkup'), false);
   } finally { t.cleanup(); }
 });
+
+test('readRuntimeConfig：读取带 BOM 的精简部署配置并合并宿主默认值', () => {
+  const t = tempTree();
+  try {
+    const defaults = { context: { maxTokens: 64000, keepRatio: 0.33 }, rounds: { soft: 6, hard: 12 }, paths: { memory: 'workspace' } };
+    writeFileSync(join(t.botDir, 'config.json'), '\uFEFF' + JSON.stringify({ context: { maxTokens: 100000 } }), 'utf8');
+    const r = readRuntimeConfig(t.botDir, defaults);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.context, { maxTokens: 100000, keepRatio: 0.33 });
+    assert.deepEqual(r.rounds, defaults.rounds);
+    assert.equal(r.memoryPath, 'workspace');
+  } finally { t.cleanup(); }
+});
+
+test('collectAll：部署自定义工作区与记忆日志分开定位', () => {
+  const t = tempTree();
+  try {
+    const workspace = join(t.botDir, 'my-workspace');
+    const logs = join(t.botDir, 'my-logs');
+    mkdirSync(join(workspace, 'handoffs'), { recursive: true });
+    mkdirSync(logs);
+    writeFileSync(join(logs, 'entries.jsonl'), JSON.stringify({ text: '小事一件', t: now.toISOString() }) + '\n');
+    writeFileSync(join(t.botDir, 'config.json'), JSON.stringify({ paths: { memory: 'my-workspace' }, worlds: { fishbrain: { memory: { dir: 'my-logs' } } } }));
+    const result = collectAll({ ...t, now });
+    assert.equal(result.handoffs.path, join(workspace, 'handoffs'));
+    assert.equal(result.memory.path, logs);
+    assert.equal(result.memory.entries.total, 1);
+  } finally { t.cleanup(); }
+});
+
+test('发布兼容：自定义 Bot 包从 exports 加载默认值，支持空格和中文路径', async () => {
+  const { loadBotDefaults } = await import('../src/deployment.mjs');
+  const t = tempTree();
+  try {
+    const code = join(t.root, '机器人 扩展');
+    mkdirSync(join(code, 'lib'), { recursive: true });
+    writeFileSync(join(code, 'package.json'), JSON.stringify({
+      type: 'module', main: './wrong.mjs', cortico: { kind: 'bot' },
+      exports: { '.': { import: './lib/入口.mjs' } },
+    }));
+    writeFileSync(join(code, 'lib', '入口.mjs'), 'export default { defaults: () => ({ paths: { memory: "记忆 工作区" }, rounds: {soft: 6} }) };');
+    const defaults = await loadBotDefaults(code, t.botDir);
+    assert.equal(defaults.paths.memory, '记忆 工作区');
+    assert.equal(defaults.rounds.soft, 6);
+  } finally { t.cleanup(); }
+});
+
+test('发布兼容：停用鱼脑时沿用实际工作区，独立工具可以显式覆盖记忆路径', () => {
+  const t = tempTree();
+  try {
+    const custom = join(t.root, '独立 记忆');
+    mkdirSync(custom);
+    writeFileSync(join(custom, 'entries.jsonl'), JSON.stringify({ t: now.toISOString() }) + '\n');
+    writeFileSync(join(t.botDir, 'config.json'), JSON.stringify({
+      paths: { memory: custom, data: '独立 数据' },
+      worlds: { fishbrain: { enabled: false, memory: { dir: '旧目录' } } },
+    }));
+    assert.equal(readRuntimeConfig(t.botDir).dataPath, '独立 数据');
+    assert.equal(collectAll({ ...t, now }).memory.path, custom);
+    const explicit = collectAll({ ...t, now, memoryDirOverride: t.memoryDir });
+    assert.equal(explicit.memory.path, join(t.memoryDir, 'memory'));
+  } finally { t.cleanup(); }
+});
+
+test('基础记忆：仅 Coo 工作区即可读取，从不把其它后端的数据当作基础读取条件', async () => {
+  const { memoryHealth } = await import('../src/hardware.mjs');
+  const t = tempTree();
+  try {
+    const workspace = join(t.botDir, 'Coo 原生 记忆');
+    mkdirSync(workspace);
+    writeFileSync(join(workspace, 'CONSTITUTION.md'), '# 基础设定');
+    writeFileSync(join(workspace, '日常.md'), '一份便签');
+    writeFileSync(join(t.botDir, 'config.json'), JSON.stringify({
+      paths: { memory: 'Coo 原生 记忆' },
+      worlds: { 'other-memory': { enabled: true, storage: '独立目录' } },
+    }));
+    const r = collectAll({ ...t, now });
+    assert.equal(r.memory.base.path, workspace);
+    assert.equal(r.memory.base.sampled, 1);
+    assert.equal(r.memory.base.readable, 1);
+    assert.ok(!r.problems.some((p) => p.startsWith('memory')));
+    assert.equal(memoryHealth(r.memory).score, 100);
+  } finally { t.cleanup(); }
+});
+
+test('基础记忆：独立日志是补充，统计好坏不改基础得分', async () => {
+  const { memoryHealth } = await import('../src/hardware.mjs');
+  const base = { path: 'workspace', state: 'ready', constitution: true, sampled: 3, readable: 3, blockedDirs: 0 };
+  assert.equal(memoryHealth({ base }).score, memoryHealth({ base, retrieve: { hitRate: 0 } }).score);
+  assert.match(memoryHealth({ base, retrieve: { hitRate: 0 } }).evidence.at(-1).label, /额外检索/);
+  const empty = memoryHealth({ base: { ...base, constitution: null, sampled: 0, readable: 0 } });
+  assert.equal(empty.score, null);
+});

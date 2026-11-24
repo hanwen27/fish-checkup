@@ -1,5 +1,5 @@
 /**
- * 装配层冒烟：用真实的 botDir 数据、假的 host，把 World 完整跑一遍。
+ * 装配层冒烟：默认用临时部署和假的 host，把 World 完整跑一遍。
  *
  * 验证的不是「算得对不对」（那是单测的事），而是：
  *   · CHECKUP_WORLD.create() 能构造
@@ -12,18 +12,24 @@
  *
  * 用法：node tools/smoke-world.mjs [--bot <botDir>]
  */
-import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { CHECKUP_WORLD, CheckupWorld } from '../src/world.ts';
 import { QUIZ_TOOL, SUBMIT_TOOL, REPORT_TOOL } from '../src/tools.mjs';
 
 const args = process.argv.slice(2);
 const botIdx = args.indexOf('--bot');
-const BOT_DIR = botIdx >= 0 ? args[botIdx + 1] : 'E:\\Coopanion\\data\\home\\companion';
-// 关键：不往真实 data 目录里写。烟测只读真实数据，写落临时目录。
+// 每次验收使用自己的状态目录，真实部署仅作为显式可选的只读输入。
 const DATA_DIR = mkdtempSync(join(tmpdir(), 'checkup-smoke-'));
+const BOT_DIR = botIdx >= 0 && args[botIdx + 1] ? resolve(args[botIdx + 1]) : join(DATA_DIR, '样例 部署');
+if (botIdx < 0 || !args[botIdx + 1]) {
+  mkdirSync(join(BOT_DIR, '记忆 工作区'), { recursive: true });
+  writeFileSync(join(BOT_DIR, '记忆 工作区', 'CONSTITUTION.md'), '# Fixture');
+  writeFileSync(join(BOT_DIR, '记忆 工作区', '散记.md'), '一份基础记忆测试笔记');
+  writeFileSync(join(BOT_DIR, 'config.json'), JSON.stringify({ paths: { memory: '记忆 工作区' } }));
+}
 
 const problems = [];
 const note = (ok, label, extra = '') => {
@@ -69,7 +75,7 @@ const ctx = {
   botDir: BOT_DIR,
   packageDir: join(import.meta.dirname, '..'),
   dataDir: DATA_DIR,
-  repoRoot: 'E:\\Coopanion',
+  repoRoot: join(import.meta.dirname, '..'),
   secret: () => '',
   storeSecret: () => {},
   persist: () => {},
@@ -154,6 +160,10 @@ note(typeof ui.invoke === 'function', 'webUi 有 invoke');
 const invoke = async (panel, method, ...a) => ui.invoke(panel, method, a);
 const hwReport = await invoke('hardware', 'report', 'zh');
 note(hwReport?.ok === true && hwReport.report?.hardware, 'invoke report 回硬件');
+if (botIdx < 0) {
+  const memory = hwReport.report.hardware.dimensions.find(({ id }) => id === 'memory');
+  note(memory?.score === 100 && memory.headline.includes('基础记忆'), '仅 Coo 基础工作区即可完成记忆检查');
+}
 const txt = await invoke('hardware', 'text');
 note(typeof txt?.text === 'string' && txt.text.includes('【硬件健康】'), 'invoke text 回完整报告');
 const beh = await invoke('persona', 'behavior');

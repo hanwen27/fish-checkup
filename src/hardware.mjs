@@ -392,7 +392,7 @@ export function contextConfig(config, contextWindow) {
     return dim('context', '上下文配置', 0.15, {
       state: 'unknown',
       score: null,
-      headline: '读不到 context / rounds 配置，这项跳过。',
+      headline: '上下文或轮次配置不完整，展开可查看配置来源。',
       evidence: [
         { label: '配置文件', value: config?.path ?? '—', hint: config?.reason ?? '' },
       ],
@@ -400,12 +400,12 @@ export function contextConfig(config, contextWindow) {
       meaning: '这几项决定她多快忘事、什么时候被强制交接。配得太紧会频繁交接，配得太松会一次塞到爆。',
     });
   }
-  const maxTokens = numOr(ctx.maxTokens);
-  const keepRatio = numOr(ctx.keepRatio);
-  const softRatio = numOr(ctx.softRatio);
-  const soft = numOr(rounds.soft);
-  const hard = numOr(rounds.hard);
-  const firstTurn = ctx.firstTurn === true;
+  const maxTokens = numOr(ctx?.maxTokens);
+  const keepRatio = numOr(ctx?.keepRatio);
+  const softRatio = numOr(ctx?.softRatio);
+  const soft = numOr(rounds?.soft);
+  const hard = numOr(rounds?.hard);
+  const firstTurn = typeof ctx?.firstTurn === 'boolean' ? ctx.firstTurn : null;
   const checks = [];
 
   const effWin = win ?? 128000;
@@ -443,7 +443,7 @@ export function contextConfig(config, contextWindow) {
   checks.push({
     name: 'firstTurn 与 keepRatio 不冲突',
     // firstTurn=true 时首轮就参与保留比例裁剪，keepRatio 太大会让首轮之后一直很挤。
-    state: !Number.isFinite(keepRatio)
+    state: !Number.isFinite(keepRatio) || firstTurn === null
       ? 'unknown'
       : !(firstTurn && keepRatio > 0.40) ? 'ok' : keepRatio <= 0.55 ? 'near' : 'bad',
     detail: `firstTurn ${firstTurn} / keepRatio ${keepRatio ?? '—'}`,
@@ -575,15 +575,53 @@ function memoryHeadline(checks) {
     : `${weak.length} 项还能再顺一点：${names}。`;
 }
 
+function baseMemoryHealth(memory) {
+  const base = memory.base;
+  const known = [];
+  if (base.constitution !== null) known.push(base.constitution ? 1 : 0);
+  if (base.sampled) known.push(base.readable / base.sampled);
+  if (base.blockedDirs) known.push(0);
+  const score = known.length ? round1(known.reduce((sum, value) => sum + value, 0) / known.length * 100) : null;
+  const workspaceState = {
+    ready: '可列出工作区文件', missing: '目录不存在', unreadable: '没有权限或无法列出文件', 'not-directory': '配置位置不是目录',
+  };
+  const evidence = [
+    { label: 'Coo 基础记忆工作区', value: base.path ?? '—', hint: workspaceState[base.state] },
+    { label: '基础设定文件', value: base.constitution === null ? '未找到' : base.constitution ? '可读取' : '无法读取', hint: 'CONSTITUTION.md' },
+    { label: '日常文本文件抽查', value: base.sampled ? `${base.readable}/${base.sampled} 可读取` : '暂无可抽查的文本文件', hint: base.limited ? '达到采样上限' : '' },
+  ];
+  if (base.blockedDirs) evidence.push({ label: '未能列出的子目录', value: String(base.blockedDirs) });
+  if (Number.isFinite(memory.entries?.total)) evidence.push({ label: '额外记忆统计', value: `${memory.entries.total} 条`, hint: '独立日志' });
+  if (Number.isFinite(memory.retrieve?.hitRate)) evidence.push({ label: '额外检索命中率', value: pct(memory.retrieve.hitRate), hint: '独立日志' });
+  const headline = base.state !== 'ready' ? 'Coo 基础记忆工作区暂时无法读取，展开可看具体原因。'
+    : score === null ? '工作区已找到，暂时没有能抽查的记忆文件。'
+      : score < 100 || base.blockedDirs ? '工作区可打开，部分记忆文件或子目录读不到。'
+        : base.sampled ? 'Coo 基础记忆可读取，抽查的记忆文件都能打开。'
+          : 'Coo 基础记忆可读取，暂时没有日常文本可抽查。';
+  return dim('memory', '记忆健康', 0.15, {
+    state: grade(score), score, headline, evidence,
+    formula: '基础设定文件能否打开，与抽查文本的可读取比例，按有依据的项目等权计算。抽查到无法读取的子目录时另计一项。额外检索统计只作参考。',
+    formulaEn: 'Checks whether the base settings file and sampled text files can be opened. An inaccessible sampled subdirectory adds a failing check. Optional retrieval statistics are informational.',
+    meaning: '这一项检查基础记忆的文件访问。扩展提供了检索统计时，可以额外查看其命中率。',
+  });
+}
+
 export function memoryHealth(memory) {
+  if (memory?.base) return baseMemoryHealth(memory);
   const e = memory?.entries;
   const r = memory?.retrieve;
   if (!memory?.ok || (!e && !r)) {
     return dim('memory', '记忆健康', 0.15, {
       state: 'unknown',
       score: null,
-      headline: '找不到记忆文件，这项跳过。',
-      evidence: [{ label: '记忆目录', value: memory?.path ?? '—', hint: memory?.reason ?? '' }],
+      headline: memory?.workspaceExists
+        ? '已找到记忆工作区，但缺少可用于体检的记忆条目或检索日志。'
+        : '没有找到可用于体检的记忆日志，展开可查看位置。',
+      evidence: [
+        { label: '记忆工作区', value: memory?.workspacePath ?? '—', hint: memory?.workspaceExists ? '目录存在' : '未找到目录' },
+        { label: '日志位置', value: memory?.path ?? '—', hint: '需要 entries.jsonl 或 retrieve.jsonl' },
+        ...(memory?.problems ?? []).map((problem) => ({ label: '读取提示', value: problem })),
+      ],
       formula: '五项各 20 分：①检索命中率 ≥40% ②平均检索耗时 ≤300ms ③失效条目 ≤5% ④retrieve 与 entries 体积比 ≤3 倍 ⑤长期没被想起来的条目 ≤60%。',
       meaning: '记忆是她的「想得起来」。命中率低是存了却找不到，体积膨胀是每次检索都在翻一堆账。',
     });
@@ -626,7 +664,8 @@ export function memoryHealth(memory) {
   return dim('memory', '记忆健康', 0.15, {
     state: grade(score),
     score: round1(score),
-    headline: full === checks.length
+    headline: score === null ? '已找到记忆日志，暂时没有足够的有效样本。'
+      : full === checks.length
       ? '记忆存得进、想得起。'
       : near === checks.length
         ? '记忆读得动，几项还能调。'

@@ -16,6 +16,7 @@ import type {
 import type { WorldContext, WorldDefinition } from 'cortico/world.ts';
 import { mkdirSync, readFileSync, writeFileSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { loadBotDefaults } from './deployment.mjs';
 
 import { collectAll } from './collect.mjs';
 import { buildReport, reportToText } from './report.mjs';
@@ -59,6 +60,8 @@ export class CheckupWorld implements World {
   private readonly dataDir: string;
   private readonly memoryDir: string;
   private readonly botName: string;
+  private readonly packageDir?: string;
+  private botDefaults?: { context?: unknown; rounds?: unknown; paths?: unknown };
   private readonly timezone?: string;
   private readonly profileCopyCache = new Map<string, { key: string; copy: Promise<unknown> }>();
   private readonly stateDirOverride: string | null;
@@ -81,6 +84,7 @@ export class CheckupWorld implements World {
     dataDir: string;
     memoryDir: string;
     botName?: string;
+    packageDir?: string;
     timezone?: string;
     /** 覆盖状态目录，仅供测试/冒烟用；正常装配不传，落 dataDir/self-checkup。 */
     stateDirOverride?: string;
@@ -90,6 +94,7 @@ export class CheckupWorld implements World {
     this.dataDir = opts.dataDir;
     this.memoryDir = opts.memoryDir;
     this.botName = opts.botName ?? '';
+    this.packageDir = opts.packageDir;
     this.timezone = opts.timezone;
     this.stateDirOverride = opts.stateDirOverride ?? null;
   }
@@ -98,6 +103,12 @@ export class CheckupWorld implements World {
 
   async start(host: WorldHost): Promise<void> {
     this.host = host;
+    try {
+      this.botDefaults = await loadBotDefaults(this.packageDir, this.botDir);
+    } catch {
+      // 默认值不可用时，部署覆盖和其它报告来源仍能使用。
+      this.botDefaults = undefined;
+    }
     this.quiz = this.loadQuizState();
     host.log.info('体检报告已挂载', { sampleDays: this.sampleDays(), quizTaken: !!this.quiz.takenAt });
   }
@@ -143,17 +154,20 @@ export class CheckupWorld implements World {
       memoryDir: this.memoryDir,
       sampleDays: this.sampleDays(),
       timezone: this.timezone,
+      botDefaults: this.botDefaults,
     });
     this.cache = { snapshot: snap, at: now, key };
     return snap;
   }
 
   private cacheKey(): string {
+    const logDir = this.cache.snapshot?.memory?.path ?? join(this.memoryDir, 'memory');
     const paths = [
       join(this.dataDir, 'usage.jsonl'),
-      join(this.memoryDir, 'memory', 'entries.jsonl'),
-      join(this.memoryDir, 'memory', 'decisions.jsonl'),
-      join(this.memoryDir, 'memory', 'emotions.jsonl'),
+      join(logDir, 'entries.jsonl'),
+      join(logDir, 'retrieve.jsonl'),
+      join(logDir, 'decisions.jsonl'),
+      join(logDir, 'emotions.jsonl'),
       join(this.botDir, 'config.json'),
     ];
     return paths.map((p) => {
@@ -535,7 +549,8 @@ export const CHECKUP_WORLD: WorldDefinition<CheckupSection> = {
     dataDir: ctx.dataDir,
     botName: ctx.botName,
     timezone: ctx.timezone,
-    // persona 的 paths.memory 是 'workspace'，落在 botDir 下。
+    packageDir: ctx.packageDir,
+    // 保留旧版默认目录，采集时优先使用部署的实际路径。
     memoryDir: join(ctx.botDir, 'workspace'),
   }),
 };

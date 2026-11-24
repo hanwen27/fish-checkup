@@ -31,9 +31,11 @@
 需要 Node.js 22 或更新版本。在扩展目录运行：
 
 ```bash
-node --test "tests/*.test.mjs"
-node tools/smoke-world.mjs
+npm test
+npm run smoke
 ```
+
+本版自动化测试 210 项通过，World 装配层冒烟通过。
 
 ## 反馈与贡献
 

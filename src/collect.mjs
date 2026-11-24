@@ -8,7 +8,7 @@
 
 import { openSync, readSync, closeSync, statSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 /** 读尾部用的块大小。 */
 const TAIL_CHUNK = 1 << 20; // 1 MiB
@@ -16,6 +16,8 @@ const TAIL_CHUNK = 1 << 20; // 1 MiB
 import { finishDecisions, observeDecision, profileClock, profileDecisions } from './profile.mjs';
 import { sampleRecentActivity } from './recent-fish.mjs';
 import { finishFishTopics, observeFishTopics } from './fish-topics.mjs';
+import { readJsonFile } from './deployment.mjs';
+import { readBaseMemory } from './base-memory.mjs';
 
 /** 一次采集最多看多少条用量记录（够算 7 天，避免整读 63MB）。 */
 
@@ -127,19 +129,37 @@ function numbered(v) {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
-/** config.json 只取 context / rounds / activeProvider，别的一概不碰。 */
-export function readRuntimeConfig(botDir) {
+const section = (value) => value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+
+function mergeSection(defaultValue, configuredValue) {
+  const base = section(defaultValue);
+  const override = section(configuredValue);
+  if (configuredValue !== undefined && !override) return null;
+  return base || override ? { ...base, ...override } : null;
+}
+
+/** 只返回报告所需的配置字段和记忆路径。 */
+export function readRuntimeConfig(botDir, defaults) {
   const path = join(botDir, 'config.json');
-  if (!existsSync(path)) return { ok: false, path, reason: 'missing', context: null, rounds: null, activeProvider: '' };
+  const exists = existsSync(path);
+  if (!exists && !defaults) return { ok: false, path, reason: 'missing', context: null, rounds: null, activeProvider: '' };
   try {
-    const raw = JSON.parse(readFileSync(path, 'utf8'));
+    const raw = exists ? readJsonFile(path) : {};
+    const paths = mergeSection(defaults?.paths, raw?.paths);
+    const memoryPath = typeof paths?.memory === 'string' && paths.memory.trim() ? paths.memory : null;
+    const dataPath = typeof paths?.data === 'string' && paths.data.trim() ? paths.data : null;
+    const fishbrain = raw?.worlds?.fishbrain;
+    const logs = fishbrain?.enabled === false ? null : fishbrain?.memory?.dir;
     return {
       ok: true,
       path,
       reason: null,
-      context: raw?.context && typeof raw.context === 'object' ? raw.context : null,
-      rounds: raw?.rounds && typeof raw.rounds === 'object' ? raw.rounds : null,
+      context: mergeSection(defaults?.context, raw?.context),
+      rounds: mergeSection(defaults?.rounds, raw?.rounds),
       activeProvider: typeof raw?.activeProvider === 'string' ? raw.activeProvider : '',
+      memoryPath,
+      memoryLogsPath: typeof logs === 'string' && logs.trim() ? logs : null,
+      dataPath,
     };
   } catch (err) {
     return { ok: false, path, reason: `unreadable: ${err?.message ?? err}`, context: null, rounds: null, activeProvider: '' };
@@ -193,14 +213,20 @@ function timestampFromName(name) {
  * decisions  → 回应率、长度中位数、置信度、kind 集中度、活跃小时分布
  * experience → 事件数（用来确认数据源活着）
  */
-export function readMemory(memoryDir, { sampleDays = 7, now = new Date(), timezone } = {}) {
-  const dir = join(memoryDir, 'memory');
+export function readMemory(memoryDir, { sampleDays = 7, now = new Date(), timezone, logDir } = {}) {
+  const nested = join(memoryDir, 'memory');
+  const ownsLogs = (path) => ['entries.jsonl', 'retrieve.jsonl', 'decisions.jsonl', 'emotions.jsonl']
+    .some((name) => safeStat(join(path, name))?.isFile());
+  const dir = logDir ?? (ownsLogs(nested) || !ownsLogs(memoryDir) ? nested : memoryDir);
+  const workspaceExists = safeStat(memoryDir)?.isDirectory() ?? false;
   const profileDays = Math.max(sampleDays, 14);
   const since = now.getTime() - profileDays * 86400000;
   const clock = profileClock(timezone);
   const out = {
     ok: true,
     path: dir,
+    workspacePath: memoryDir,
+    workspaceExists,
     reason: null,
     entries: null,
     retrieve: null,
@@ -487,7 +513,7 @@ function readRecentActivity(dataDir, since, now) {
 }
 
 /** 一次拿齐所有原始样本。 */
-export function collectAll({ botDir, dataDir, memoryDir, sampleDays = 7, now = new Date(), timezone }) {
+export function collectAll({ botDir, dataDir, memoryDir, sampleDays = 7, now = new Date(), timezone, botDefaults, memoryDirOverride }) {
   const problems = [];
   let usage;
   try {
@@ -499,27 +525,32 @@ export function collectAll({ botDir, dataDir, memoryDir, sampleDays = 7, now = n
 
   let config;
   try {
-    config = readRuntimeConfig(botDir);
+    config = readRuntimeConfig(botDir, botDefaults);
   } catch (err) {
     config = { ok: false, path: join(botDir, 'config.json'), reason: `unreadable: ${err?.message ?? err}`, context: null, rounds: null, activeProvider: '' };
   }
   if (!config.ok) problems.push(`config.json: ${config.reason}`);
 
+  const workspace = memoryDirOverride ?? (config.memoryPath ? resolve(botDir, config.memoryPath) : memoryDir);
+  const logDir = !memoryDirOverride && config.memoryLogsPath ? resolve(botDir, config.memoryLogsPath) : undefined;
   let handoffs;
   try {
-    handoffs = readHandoffs(memoryDir);
+    handoffs = readHandoffs(workspace);
   } catch (err) {
-    handoffs = { ok: false, path: join(memoryDir, 'handoffs'), reason: `unreadable: ${err?.message ?? err}`, files: [] };
+    handoffs = { ok: false, path: join(workspace, 'handoffs'), reason: `unreadable: ${err?.message ?? err}`, files: [] };
   }
   if (!handoffs.ok) problems.push(`handoffs: ${handoffs.reason}`);
 
   let memory;
   try {
-    memory = readMemory(memoryDir, { sampleDays, now, timezone });
+    memory = readMemory(workspace, { sampleDays, now, timezone, logDir });
   } catch (err) {
-    memory = { ok: false, path: join(memoryDir, 'memory'), reason: `unreadable: ${err?.message ?? err}`, problems: [] };
+    memory = { ok: false, path: logDir ?? join(workspace, 'memory'), reason: `unreadable: ${err?.message ?? err}`, problems: [] };
   }
-  if (!memory.ok) problems.push(`memory: ${memory.reason}`);
+  memory.base = readBaseMemory(workspace);
+  if (memory.base.state !== 'ready') problems.push(`workspace: ${memory.base.state}`);
+  // 没有独立统计日志是正常部署，只有实际读取错误才计入采集问题。
+  if (!memory.ok && memory.reason !== 'missing') problems.push(`memory statistics: ${memory.reason}`);
   problems.push(...(memory.problems ?? []));
 
   let activity = null;

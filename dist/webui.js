@@ -172,7 +172,8 @@ const SOURCES = [
   ['data/usage.jsonl', '稳定性、响应速度、缓存与成本'],
   ['config.json · context / rounds', '上下文配置'],
   ['workspace/handoffs/*.md', '交接健康'],
-  ['workspace/memory/*.jsonl', '记忆健康、行为侧写（E/I、S/N、T/F、J/P）'],
+  ['Coo 基础记忆工作区', '基础设定与日常文本的可读取性'],
+  ['扩展统计日志（如有）', '检索统计和部分近期行为依据'],
 ];
 
 function el(tag, cls, text) {

@@ -145,6 +145,12 @@ export function buildProfile(memory, language, activity) {
   }
 
   const memoryLines = [];
+  const base = memory?.base;
+  if (base?.state === 'ready') {
+    memoryLines.push(zh ? '已找到 Coo 基础记忆工作区。' : 'The Coo base memory workspace is available.');
+    if (base.sampled) memoryLines.push(zh ? `基础记忆文本抽查：${base.readable}/${base.sampled} 份可读取。`
+      : `Base memory text sampled: ${base.readable}/${base.sampled} readable files.`);
+  }
   let memorySummary = '';
   if (entries?.profileCount > 0) {
     memoryLines.push(zh ? `新增 ${entries.profileCount} 条带日期的记忆，分布在 ${entries.profileDays} 天。`

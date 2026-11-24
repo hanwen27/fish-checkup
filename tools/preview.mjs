@@ -3,12 +3,11 @@
  * 不依赖 Coo 运行、不写任何文件（连缓存都不写）。
  *
  * 用法：
- *   node tools/preview.mjs                       # 用默认部署路径
- *   node tools/preview.mjs --bot <dir> --data <dir>
- *   node tools/preview.mjs --json                # 只输出 JSON
+ *   node tools/preview.mjs --bot <部署目录> [--data <数据目录>] [--memory <记忆工作区>] [--json]
  */
 
-import { collectAll } from '../src/collect.mjs';
+import { resolve } from 'node:path';
+import { collectAll, readRuntimeConfig } from '../src/collect.mjs';
 import { buildReport, reportToText } from '../src/report.mjs';
 import { loadQuiz, scoreQuiz, takeBatch } from '../src/quiz.mjs';
 
@@ -18,14 +17,23 @@ function arg(name, fallback) {
   return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
 }
 
-const botDir = arg('bot', 'E:/Coopanion/data/home/companion');
-const dataDir = arg('data', `${botDir}/data`);
-const memoryDir = arg('memory', `${botDir}/workspace`);
+const bot = arg('bot');
+if (!bot) {
+  console.error('Usage: npm run preview -- --bot <deployment-directory> [--data <dir>] [--memory <dir>] [--json]');
+  process.exit(2);
+}
+const botDir = resolve(bot);
+const config = readRuntimeConfig(botDir);
+const dataOverride = arg('data');
+const memoryOverride = arg('memory');
+const dataDir = dataOverride ? resolve(dataOverride) : resolve(botDir, config.dataPath ?? 'data');
+const memoryDir = resolve(botDir, 'workspace');
+const memoryDirOverride = memoryOverride ? resolve(memoryOverride) : undefined;
 const sampleDays = Number(arg('days', 7));
 const wantJson = argv.includes('--json');
 
 const t0 = Date.now();
-const snap = collectAll({ botDir, dataDir, memoryDir, sampleDays });
+const snap = collectAll({ botDir, dataDir, memoryDir, memoryDirOverride, sampleDays });
 const tRead = Date.now() - t0;
 
 const report = buildReport(snap, { contextWindow: null, quizResult: null, language: 'zh' });
