@@ -3,7 +3,17 @@
   "version": "1.0.0",
   "type": "module",
   "private": false,
-  "keywords": ["cortico-world", "cortico", "health", "personality", "local"],
+  "keywords": ["cortico-world", "cortico", "health", "personality", "checkup"],
+  "files": [
+    "src",
+    "dist",
+    "assets/cover.png",
+    "assets/quiz.zh.json",
+    "describe.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "main": "./src/index.ts",
   "exports": { ".": "./src/index.ts" },
   "cortico": {
@@ -15,7 +25,7 @@
     "describe": "describe.json",
     "webUiClient": "dist/webui.js",
     "webUiStyle": "dist/webui.css",
-    "tags": ["health", "personality", "local"],
+    "tags": ["diagnostics", "companion"],
     "locales": {
       "zh": {
         "displayName": "体检报告",
