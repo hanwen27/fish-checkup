@@ -14,7 +14,12 @@ class FakeNode {
     this.parentNode = null;
     this.attributes = {};
     this.dataset = {};
-    this.style = {};
+    this.style = {
+      _vars: {},
+      setProperty(name, value) { this._vars[name] = value; },
+      getPropertyValue(name) { return this._vars[name] ?? ''; },
+      removeProperty(name) { delete this._vars[name]; },
+    };
     this.listeners = {};
     this._text = '';
     this._html = '';

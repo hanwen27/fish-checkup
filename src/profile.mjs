@@ -1,5 +1,6 @@
 import { buildCardDetails } from './card-profile.mjs';
 import { recentFacts } from './recent-fish.mjs';
+import { collectProfileSignals, profileSituations } from './profile-updates.mjs';
 
 const MIN_DECISIONS = 50;
 const MIN_GROUP = 12;
@@ -190,6 +191,12 @@ export function buildProfile(memory, language, activity, quiz) {
       meaning: zh ? '表示她最近常去哪里活动。' : 'Shows where recent activity was concentrated.',
     });
   }
+  if (!activity?.plugin) evidence.push({
+    ...finding('play', zh ? '探索活动' : 'Leisure activity', []),
+    value: null,
+    formula: zh ? '按娱乐插件汇总近期开启的成功调用。' : 'Counts successful leisure plugin calls in the observation window.',
+    meaning: zh ? '记录充足时显示她最近常去的地方。' : 'Shows where she has been playing when records are available.',
+  });
   const observations = evidence.filter(({ summary }) => summary).sort((a, b) => b.rank - a.rank);
   const facts = recentFacts(memory, activity, language);
   const eligible = [...facts, ...observations.filter(({ id }) => id !== 'memory')];
@@ -234,10 +241,18 @@ export function buildProfile(memory, language, activity, quiz) {
   const title = zh ? '再等几个泡泡，就能多认识她一点。'
     : main && additional ? `${main.replace(/\.$/u, '')}, and ${additional[0].toLowerCase()}${additional.slice(1)}`
       : main ?? 'There are too few recent records to describe her habits.';
-  const card = buildCardDetails({ stats, activity, emotion, entries, recent, quiz, language });
-  const profile = { days, evidence, recent, title, ...card };
+  const cardInputs = { stats, activity, emotion, entries, recent, quiz };
+  const { fallbackTitle, ...card } = buildCardDetails({ ...cardInputs, language });
+  const cues = zh ? card.cues : buildCardDetails({ ...cardInputs, language: 'zh' }).cues;
+  const situation = profileSituations(cues, language, evidence, activity, quiz);
+  const profile = {
+    days, evidence, recent, title: !zh ? (situation.situations[0]?.choice ?? title) : title, ...card, ...situation,
+    signals: collectProfileSignals(activity, entries),
+  };
   const rows = recent.filter((row) => !row.empty).map(({ id, summary }) => [id, summary]);
-  return { ...profile, copyKey: JSON.stringify([rows, profile.title, profile.label, profile.description, card.candidates]) };
+  const keyFor = (headline) => JSON.stringify([rows, headline, profile.label, profile.description, card.candidates]);
+  const previousTitle = fallbackTitle ?? (!zh && profile.title !== title ? title : null);
+  return { ...profile, copyKey: keyFor(profile.title), ...(previousTitle && { legacyCopyKey: keyFor(previousTitle) }) };
 }
 
 export function readProfileCopy(text, ids, candidates) {

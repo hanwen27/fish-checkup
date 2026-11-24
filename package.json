@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-self-checkup",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "type": "module",
   "private": false,
   "keywords": [
@@ -17,11 +17,11 @@
     "assets/quiz.zh.json",
     "assets/icon.png",
     "assets/screenshot-1.png",
+    "assets/screenshot-2.png",
     "describe.json",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE",
-    "assets/screenshot-2.png"
+    "LICENSE"
   ],
   "main": "./src/index.ts",
   "exports": {
@@ -47,22 +47,21 @@
     "locales": {
       "zh": {
         "displayName": "鱼鱼体检",
-        "description": "她最近是跑得慢了，还是心思变了？先别急着重装，做一次体检。硬件健康看六项：稳定性、响应速度、缓存与成本、上下文配置、交接健康、记忆健康，每项都有分数、趋势和判断依据——是哪次交接拖慢的、哪段记忆在漏，都指给你看。另一份是性格侧写：28 道情境题她自己答，再拿真实行为痕迹反查，开口习惯、记忆线索、情绪起伏、日常节奏，最后给一张名片，带称号、四个短标签和一段近期观察。两份报告分开算、不合并总分，全程只读不改配置。"
+        "description": "她最近是跑得慢了，还是心思变了？先别急着重装，做一次体检。硬件半边看六项：稳定性、响应速度、缓存与成本、上下文配置、交接健康、记忆健康，每项有分数、趋势和判断依据——哪次交接拖慢的、哪段记忆在漏，都指给你看。另一边是性格侧写：近期名片、能展开逐条看的情境依据、五项指标图，还能邀她做一次奇遇小测。两份报告分开算、不合并总分，只读不改配置，明暗主题跟着 Coo 走。"
       },
       "en": {
         "displayName": "Fish Checkup",
-        "description": "Is she slowing down, or has something about her changed? Run a checkup before you reinstall. The hardware half scores six dimensions — stability, latency, cache and cost, context config, handoff health, memory health — each with a trend and the evidence behind it, so you can see which handoff dragged or where memory is leaking. The other half is playful: 28 situational questions she answers herself, cross-checked against real behavioural traces (opening habits, memory cues, mood swings, daily rhythm) and turned into a card with a title, four labels and a recent observation. Two separate reports, never merged into one score, read-only throughout."
+        "description": "Review six operational health indicators alongside an illustrated personality card, expandable situational evidence, five wellbeing charts, and changes since your last visit. The optional Curiosity Quiz is available separately. The report follows Coo’s light or dark theme."
       }
     }
   },
   "scripts": {
     "test": "node --test \"tests/*.test.mjs\"",
-    "preview": "node tools/preview.mjs",
     "smoke": "node --experimental-strip-types tools/smoke-world.mjs"
   },
   "engines": {
     "node": ">=22"
   },
   "license": "MIT",
-  "description": "她最近是跑得慢了，还是心思变了？先别急着重装，做一次体检。硬件健康看六项：稳定性、响应速度、缓存与成本、上下文配置、交接健康、记忆健康，每项都有分数、趋势和判断依据——是哪次交接拖慢的、哪段记忆在漏，都指给你看。另一份是性格侧写：28 道情境题她自己答，再拿真实行为痕迹反查，开口习惯、记忆线索、情绪起伏、日常节奏，最后给一张名片，带称号、四个短标签和一段近期观察。两份报告分开算、不合并总分，全程只读不改配置。"
+  "description": "她最近是跑得慢了，还是心思变了？先别急着重装，做一次体检。硬件半边看六项：稳定性、响应速度、缓存与成本、上下文配置、交接健康、记忆健康，每项有分数、趋势和判断依据——哪次交接拖慢的、哪段记忆在漏，都指给你看。另一边是性格侧写：近期名片、能展开逐条看的情境依据、五项指标图，还能邀她做一次奇遇小测。两份报告分开算、不合并总分，只读不改配置，明暗主题跟着 Coo 走。"
 }

@@ -29,6 +29,14 @@ const QUIZ = {
 
 const NOISE_TOPICS = new Set(['food', 'sweet']);
 const FALLBACK = ['初见面', '近况待补', '慢慢认识'];
+const COMBINATIONS = [
+  [['解题派'], ['随机应变'], '心里有谱，做事留点余地。'],
+  [['共情派', '暖心派'], ['有安排', '条理控'], '温温柔柔，也很有章法。'],
+  [['直球派'], ['爱商量'], '重点说得挺直，话尾还给你留个位置。'],
+  [['先观察', '潜水派'], ['话匣子'], '热闹时先听着，真有想说的就讲个完整。'],
+  [['爱追问'], ['细节控', '爱看细节'], '别人说到差不多，她刚好想到下一句要问什么。'],
+  [['笑声多'], ['条理控', '有安排'], '笑归笑，事情该排第几件她心里有数。'],
+];
 
 export function buildCardDetails({ stats, activity, emotion, entries, recent, quiz, language }) {
   const zh = language === 'zh';
@@ -96,6 +104,9 @@ export function buildCardDetails({ stats, activity, emotion, entries, recent, qu
   }
   cues.sort((a, b) => b.rank - a.rank);
   const [first, second, third, fourth] = cues;
+  const leadingTraits = new Set(cues.slice(0, 3).map(({ tags: [tag] }) => tag));
+  const combined = COMBINATIONS.find(([a, b]) => a.some((tag) => leadingTraits.has(tag))
+    && b.some((tag) => leadingTraits.has(tag)))?.[2];
   const chosen = [...new Set(cues.map(({ tags }) => tags[0]))].slice(0, 4);
   const candidates = [...new Set(cues.flatMap(({ tags }) => tags))];
   if (chosen.length < 3 && quiet && (long || short)) {
@@ -112,12 +123,13 @@ export function buildCardDetails({ stats, activity, emotion, entries, recent, qu
     }
   }
   return {
-    ...(first && { title: first.title }),
+    ...(first && { title: combined ?? first.title }),
+    ...(combined && { fallbackTitle: first.title }),
     label: second?.label ?? first?.label ?? '和小鱼初见面',
     description: (third ? [third, fourth] : [second ?? first]).filter(Boolean).map(({ description }) => description).join('')
       || '小鱼的日常还在慢慢攒，等有了持续的记录，就能讲得更像她。',
     tags: chosen,
     candidates: [...candidates, ...backup],
-    cues: cues.slice(0, 6).map(({ id, description, source }) => ({ id, description, source })),
+    cues: cues.slice(0, 6).map(({ id, description, source, tags: [trait] }) => ({ id, description, source, trait })),
   };
 }

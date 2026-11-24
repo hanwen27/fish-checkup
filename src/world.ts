@@ -24,6 +24,7 @@ import { loadQuiz, scoreQuiz } from './quiz.mjs';
 import { TOOL_SCHEMAS, makeToolHandlers, QUIZ_TOOL, SUBMIT_TOOL } from './tools.mjs';
 import { pick } from './text.mjs';
 import { readProfileCopy } from './profile.mjs';
+import { compareProfileSignals, collectProfileSignals } from './profile-updates.mjs';
 import { cardPrompt } from './card-profile.mjs';
 
 export const CHECKUP_ID = 'self-checkup';
@@ -46,6 +47,7 @@ interface QuizState {
   creative?: Record<string, unknown>;
   creativeAt?: number;
   creativeRequestedAt?: number;
+  profileSeen?: { observedAt: number; signals: ReturnType<typeof collectProfileSignals> };
   profileCard?: Partial<Record<'zh' | 'en', { key: string; copy: { title: string; label: string; description: string; tags: string[] } }>>;
 }
 
@@ -227,6 +229,7 @@ export class CheckupWorld implements World {
       creativeAt: next.creativeAt,
       creativeRequestedAt: next.creativeRequestedAt,
       profileCard: next.profileCard,
+      profileSeen: next.profileSeen ?? this.quiz.profileSeen,
     };
     try {
       mkdirSync(this.stateDir(), { recursive: true });
@@ -297,6 +300,7 @@ export class CheckupWorld implements World {
     const hw = report.hardware;
     const per = report.personality;
     const problems = report.problems.length;
+    const recentCount = per.profile.recent.filter((row) => !row.empty).length;
 
     return {
       label: lang === 'zh' ? '体检报告' : 'Checkup',
@@ -322,16 +326,19 @@ export class CheckupWorld implements World {
           hint: hw.overall === null ? '' : `${hw.overall} ${hw.level}`,
         },
         {
-          label: lang === 'zh' ? '人格' : 'Personality',
-          state: per.profile.recent.length ? 'online' : 'offline',
-          hint: per.profile.recent.length
-            ? (lang === 'zh' ? `${per.profile.recent.length} 条近期观察` : `${per.profile.recent.length} recent observations`)
-            : (lang === 'zh' ? '近期记录不足' : 'not enough recent records'),
+          label: lang === 'zh' ? '心理健康' : 'Wellbeing',
+          state: per.profile.change ? 'loading' : recentCount ? 'online' : 'offline',
+          hint: per.profile.change
+            ? (lang === 'zh' ? '有新发现' : 'A new observation')
+            : recentCount
+              ? (lang === 'zh' ? `${recentCount} 条近期观察` : `${recentCount} recent observations`)
+              : (lang === 'zh' ? '近期记录不足' : 'not enough recent records'),
         },
       ],
-      badges: hw.overall !== null
-        ? [{ label: lang === 'zh' ? '硬件' : 'HW', value: `${hw.overall} ${hw.level}`, tone: 'plain' }]
-        : [],
+      badges: [
+        ...(hw.overall !== null ? [{ label: lang === 'zh' ? '硬件' : 'HW', value: `${hw.overall} ${hw.level}`, tone: 'plain' as const }] : []),
+        ...(per.profile.change ? [{ label: lang === 'zh' ? '心理健康' : 'Wellbeing', value: lang === 'zh' ? '有新发现' : 'New observation', tone: 'plain' as const }] : []),
+      ],
       panels: [
         {
           id: 'hardware',
@@ -394,6 +401,14 @@ export class CheckupWorld implements World {
         Object.assign(report.personality.profile, { canGenerate: true });
       }
       return { ok: true, report };
+    }
+    if (panel === 'persona' && method === 'profileSeen') {
+      const { profile } = this.report(pick(String(args?.[0] ?? 'zh'))).personality;
+      if (profile.seenKey !== args?.[1]) return { ok: false, error: 'stale' };
+      if (profile.hasBaseline && !profile.change) return { ok: true };
+      const profileSeen = { observedAt: Date.now(), signals: profile.signals };
+      this.saveQuizState({ ...this.quiz, profileSeen });
+      return { ok: this.quiz.profileSeen === profileSeen };
     }
     if (panel === 'persona' && (method === 'cardPrompt' || method === 'saveProfileCard')) {
       const lang = pick(String(args?.[0] ?? 'zh'));
@@ -512,12 +527,18 @@ export class CheckupWorld implements World {
     const profile = report.personality.profile;
     const saved = this.quiz.profileCard?.[lang];
     const key = profile.copyKey;
-    if (saved?.key === key) Object.assign(profile, {
+    if (saved && (saved.key === key || saved.key === profile.legacyCopyKey)) Object.assign(profile, {
       title: saved.copy.title, label: saved.copy.label, description: saved.copy.description,
       tags: saved.copy.tags, custom: true,
     });
     Object.assign(profile, { name: this.botName });
-    return report;
+    const seen = this.quiz.profileSeen;
+    const followup = {
+      change: compareProfileSignals(seen, profile.signals, lang),
+      hasBaseline: Array.isArray(seen?.signals),
+      seenKey: JSON.stringify(profile.signals.map(({ kind, key }) => [kind, key])),
+    };
+    return { ...report, personality: { ...report.personality, profile: { ...profile, ...followup } } };
   }
 
   private safeSnapshot(): Snapshot {
