@@ -141,7 +141,7 @@ test('硬件面板：总分、六维标题、依据、公式都在', async () =>
   for (const title of ['稳定性', '速度', '缓存', '上下文', '交接', '记忆']) {
     assert.ok(text.includes(title), `缺维度 ${title}`);
   }
-  assert.ok(text.includes('怎么算的'));
+  assert.ok(text.includes('评分细则'), '1.0.8 把公式收进了页底的评分细则');
   assert.ok(text.includes('只读取，不修改'));
   assert.ok(text.includes('handoffs: 目录不存在'), 'problems 要列出来');
 });

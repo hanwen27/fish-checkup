@@ -1,9 +1,13 @@
-import { closeSync, openSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
+import { finishFishTopics, observeFishTopics } from './fish-topics.mjs';
 
 const MAX_DIRS = 128;
 const MAX_FILES = 64;
 const TEXT_FILE = /\.(?:md|txt|json|yaml|yml|toml|csv)$/iu;
+const DATED_NOTE = /^(\d{4}-\d{2}-\d{2})\.(?:md|txt)$/iu;
+const NOTE_FOLDERS = new Set(['memory', 'memories', 'daily', 'diary']);
+const NOTE_BYTES = 16 * 1024;
 
 function canOpen(file) {
   try {
@@ -14,9 +18,28 @@ function canOpen(file) {
   }
 }
 
-// Read only workspace directory metadata and probe accessible files.
+function collectDatedNote(tally, file, name, since, until) {
+  const day = DATED_NOTE.exec(name)?.[1];
+  if (!day || day < since || day > until) return;
+  const date = new Date(day);
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== day) return;
+  try {
+    const fd = openSync(file, 'r');
+    try {
+      const buffer = Buffer.alloc(NOTE_BYTES);
+      const count = readSync(fd, buffer, 0, NOTE_BYTES, 0);
+      observeFishTopics(tally, buffer.toString('utf8', 0, count), day);
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    // The file-access check above still determines the health result.
+  }
+}
+
+// Keep only aggregate topic counts from dated notes in recognizable journal folders.
 // Optional memories may coexist, but do not define this check's score.
-export function readBaseMemory(workspace) {
+export function readBaseMemory(workspace, { now = new Date(), profileDays = 14 } = {}) {
   const result = { path: workspace, state: 'missing', constitution: null, readable: 0, sampled: 0, limited: false, blockedDirs: 0 };
   if (!workspace) return result;
   try {
@@ -36,6 +59,9 @@ export function readBaseMemory(workspace) {
   if (constitution?.isFile()) result.constitution = canOpen(join(workspace, constitution.name));
 
   const queue = [{ dir: workspace, entries: rootEntries }];
+  const topics = new Map();
+  const since = new Date(now.getTime() - profileDays * 86400000).toISOString().slice(0, 10);
+  const until = now.toISOString().slice(0, 10);
   let index = 0;
   while (index < queue.length && index < MAX_DIRS && result.sampled < MAX_FILES) {
     const { dir, entries } = queue[index++];
@@ -58,10 +84,16 @@ export function readBaseMemory(workspace) {
           break;
         }
         result.sampled += 1;
-        if (canOpen(file)) result.readable += 1;
+        if (canOpen(file)) {
+          result.readable += 1;
+          if (NOTE_FOLDERS.has(relative(workspace, dir).split(sep, 1)[0].toLowerCase())) {
+            collectDatedNote(topics, file, entry.name, since, until);
+          }
+        }
       }
     }
   }
   result.limited ||= index < queue.length;
+  result.profileTopics = finishFishTopics(topics);
   return result;
 }

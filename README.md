@@ -16,12 +16,36 @@
 
 这是一份陪伴向的趣味观察，不是临床或标准化人格诊断，也不评价桌宠的好坏。插件呈现和解释结果，不自动调整 Coo 配置。
 
-## 安装 1.0.7
+## 安装 1.0.8
 
-1. 下载 `self-checkup-1.0.7.zip` 并解压。
+从扩展市场搜「鱼鱼体检」直接装是最省事的方式。手动装：
+
+1. 下载 `self-checkup-1.0.8.zip` 并解压。
 2. Coopanion 打开「高级模式 → World 扩展 → 扩展市场 → 手动安装 → 从本机目录安装」，选择解压出的 `self-checkup` 文件夹。
 3. 按提示重启进程，再到「World 总览」启用「体检报告」，打开面板。
 4. 本机路径安装会链接到解压目录，试用期间请保留文件夹原位；升级前先备份旧版。
+
+### 装不上：`ERR_PNPM_UNEXPECTED_STORE`
+
+报错长这样：
+
+```
+[ERR_PNPM_UNEXPECTED_STORE] Unexpected store location
+The dependencies at "...\data\extensions\node_modules" are currently linked
+from the store at "...\pnpm-store\v11".
+pnpm now wants to use the store at "...\data\pnpm\store\v11" to link dependencies.
+```
+
+这不是本扩展的问题——`dependencies` 是空的，也没有安装脚本。原因是 Coo 换过 pnpm 的缓存目录，而机器上原有的 `node_modules` 还是按旧目录装的；此时任何扩展的安装或卸载都会撞同一堵墙（卸载也会报同一个错）。
+
+修法：按 Coo 想要的那个 store 重建一次依赖。
+
+```bash
+cd <COOPANION>\data\extensions
+pnpm install --frozen-lockfile --store-dir <COOPANION>/data/pnpm/store
+```
+
+版本由 lockfile 锁住，缺的包才会下载，通常几十秒到几分钟。想退回原状，把 `--store-dir` 换回旧路径再跑一次即可。重建期间 Coo 里的扩展会短暂不可用。
 
 ## 数据与隐私
 

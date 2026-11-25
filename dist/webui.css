@@ -926,3 +926,45 @@
   .sc-profile-metric summary::after { grid-area: arrow; }
   .sc-profile-plot, .sc-profile-metric-empty { grid-area: plot; }
 }
+.sc-profile-columns { align-items: start; }
+.sc-character-conclusion {
+  margin: 12px 0; padding: 10px 12px; border: 1px solid var(--sc-line); border-radius: 9px;
+  background: color-mix(in srgb, var(--sc-accent) 8%, var(--sc-bg));
+}
+.sc-character-conclusion h4 { margin: 0; color: var(--sc-fg); font-size: clamp(15px, 2cqw, 19px); line-height: 1.45; }
+.sc-character-conclusion p { margin: 3px 0 0; }
+.sc-profile-metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 8px 12px; margin-top: 12px; }
+.sc-profile-metric-grid > .sc-dim { margin: 0; }
+.sc-profile-metric-grid > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+@container (max-width: 760px) {
+  .sc-profile-metric-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.sc-hardware { container-type: inline-size; }
+.sc-hardware-dim > .sc-dim-sum {
+  display: grid; grid-template-columns: 84px 86px minmax(0, 1fr) auto;
+  gap: 12px; align-items: center;
+}
+.sc-hardware-takeaway { min-width: 0; color: var(--sc-fg); line-height: 1.45; overflow-wrap: anywhere; }
+.sc-hardware-dim-tail { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.sc-hardware .sc-hw-bar-row { grid-template-columns: 78px minmax(0, 1fr) 76px 29px; }
+.sc-hardware-advice h3 { margin: 0; }
+.sc-hardware-advice p { margin: 0 0 8px; }
+.sc-hardware-advice p:last-child { margin-bottom: 0; }
+.sc-hardware-rules { border-top: 1px solid var(--sc-line); padding-top: 12px; }
+.sc-hardware-rules > summary { cursor: pointer; color: var(--sc-dim); }
+.sc-hardware-rules-body { padding: 8px 0 0; }
+.sc-hardware-rules-body h4 { margin: 11px 0 2px; }
+.sc-hardware-rules-body p { margin: 0 0 6px; }
+.sc-comparison-dates { margin-top: 8px; }
+@container (max-width: 700px) {
+  .sc-hardware-dim > .sc-dim-sum {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "name score" "takeaway takeaway" "trend trend";
+    gap: 4px 8px;
+  }
+  .sc-hardware-dim .sc-dim-title { grid-area: name; }
+  .sc-hardware-dim .sc-dim-score { grid-area: score; }
+  .sc-hardware-takeaway { grid-area: takeaway; }
+  .sc-hardware-dim-tail { grid-area: trend; justify-content: flex-start; }
+}

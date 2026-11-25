@@ -365,7 +365,7 @@ function hwBars(dimensions, t) {
     track.append(mark);
     row.append(track);
 
-    const val = el('span', 'sc-hw-bar-val', d.metricValue ?? (Number.isFinite(d.score) ? String(d.score) : '—'));
+    const val = el('span', 'sc-hw-bar-val', d.checkLabel ?? d.metricValue ?? (Number.isFinite(d.score) ? String(d.score) : '—'));
     row.append(val);
 
     const delta = Number.isFinite(d.delta) && Math.abs(d.delta) >= 5 ? d.delta : null;
@@ -385,7 +385,7 @@ function hwTiles(dimensions, t) {
     const tile = el('div', 'sc-hw-tile');
     tile.dataset.state = d.state;
     tile.append(el('span', 'sc-hw-tile-name', d.title));
-    tile.append(el('span', 'sc-hw-tile-score', Number.isFinite(d.score) ? String(d.score) : '—'));
+    tile.append(el('span', 'sc-hw-tile-score', d.checkLabel ?? (Number.isFinite(d.score) ? String(d.score) : '—')));
     // 一条极细的底条，给「高低」一个形状，不用读数字
     const track = el('span', 'sc-hw-tile-track');
     const fill = el('span', 'sc-hw-tile-fill');
@@ -429,7 +429,7 @@ function dailyBars(series) {
   }
   return wrap;
 }
-function dimRow(d, t, lang) {
+function dimRow(d, t, lang, hardware = false) {
   const row = el('details', 'sc-dim');
   row.dataset.state = d.state;
 
@@ -437,27 +437,33 @@ function dimRow(d, t, lang) {
   sum.append(el('span', 'sc-dim-title', d.title));
 
   const scoreBox = el('span', 'sc-dim-score');
-  scoreBox.append(el('span', scoreClass(d.state), d.metricValue ?? (Number.isFinite(d.score) ? String(d.score) : '—')));
+  scoreBox.append(el('span', scoreClass(d.state), d.checkLabel ?? d.metricValue ?? (Number.isFinite(d.score) ? String(d.score) : '—')));
   sum.append(scoreBox);
+  let tail = sum;
+  if (hardware) {
+    row.classList.add('sc-hardware-dim');
+    tail = el('span', 'sc-hardware-dim-tail');
+    sum.append(el('span', 'sc-hardware-takeaway', d.takeaway ?? d.headline), tail);
+  }
 
   const pts = (d.series || []).map((p) => (Number.isFinite(p.score) ? p.score : null));
   if (pts.filter((v) => v !== null).length >= 2) {
-    sum.append(sparkline(pts, { state: d.state }));
-  } else if (!d.hideTrend) {
+    tail.append(sparkline(pts, { state: d.state }));
+  } else if (!hardware && !d.hideTrend) {
     const label = lang === 'zh' ? (pts.length ? '趋势样本不足' : '暂无逐日趋势') : (pts.length ? 'Too few trend samples' : 'No daily trend');
-    sum.append(el('span', 'sc-profile-period sc-no-trend', label));
+    tail.append(el('span', 'sc-profile-period sc-no-trend', label));
   }
 
   // 趋势放在折线后面：先看形状，再看数字。
-  const trendStr = trendText(d, lang) ?? d.trend ?? null;
+  const trendStr = trendText(d, lang) ?? d.trend ?? (hardware ? d.trendStatus : null);
   if (trendStr) {
     const trend = el('span', 'sc-trend', trendStr);
-    trend.dataset.dir = Number.isFinite(d.delta) ? (d.delta > 0 ? 'up' : 'down') : 'flat';
-    sum.append(trend);
+    trend.dataset.dir = Number.isFinite(d.delta) && Math.round(Math.abs(d.delta)) >= 5 ? (d.delta > 0 ? 'up' : 'down') : 'flat';
+    tail.append(trend);
   }
   row.append(sum);
 
-  row.append(el('div', 'sc-dim-head', d.headline));
+  if (!hardware) row.append(el('div', 'sc-dim-head', d.headline));
 
   // 有逐日序列的维度，展开后先给柱状图：哪天塌了一眼能看出来。
   const bars = dailyBars(d.series);
@@ -484,10 +490,19 @@ function dimRow(d, t, lang) {
     }
     body.append(table);
   }
-  body.append(el('div', 'sc-label', t.formula));
-  body.append(el('div', 'sc-prose', d.formula));
-  body.append(el('div', 'sc-label', t.meaning));
-  body.append(el('div', 'sc-prose', d.meaning));
+  if (hardware) {
+    if (d.comparison) {
+      const { earlier, recent } = d.comparison;
+      const period = ({ start, end, days }) => `${start} – ${end} (${days} ${lang === 'zh' ? '个有效日' : 'valid days'})`;
+      body.append(el('div', 'sc-prose sc-comparison-dates', `${period(earlier)} → ${period(recent)}`));
+    }
+    if (d.suggestion) body.append(el('div', 'sc-label', lang === 'zh' ? '可以先做' : 'Try first'), el('div', 'sc-prose', d.suggestion));
+  } else {
+    body.append(el('div', 'sc-label', t.formula));
+    body.append(el('div', 'sc-prose', d.formula));
+    body.append(el('div', 'sc-label', t.meaning));
+    body.append(el('div', 'sc-prose', d.meaning));
+  }
   row.append(body);
   return row;
 }
@@ -553,12 +568,36 @@ function hardwareRadarLegend(t) {
   box.append(el('div', 'sc-prose', t.hardwareChartNote));
   return box;
 }
+
+function hardwareAdvice(simple, zh) {
+  const section = el('section', 'sc-care sc-hardware-advice');
+  section.append(el('h3', 'sc-sect-title', zh ? '简单总结' : 'In short'));
+  section.append(el('p', 'sc-prose', [simple.overall, simple.priority, simple.scope].filter(Boolean).join(' ')));
+  section.append(el('h3', 'sc-sect-title', zh ? '先做什么' : 'What to try first'));
+  section.append(el('p', 'sc-prose', simple.next));
+  return section;
+}
+
+function hardwareRules(hardware, lang) {
+  const zh = lang === 'zh';
+  const rules = el('details', 'sc-hardware-rules');
+  const body = el('div', 'sc-hardware-rules-body');
+  for (const line of hardware.scoring ?? []) body.append(el('p', 'sc-prose', line));
+  for (const item of hardware.dimensions ?? []) {
+    body.append(el('h4', '', item.title), el('p', 'sc-prose', item.formula));
+    if (item.meaning && zh) body.append(el('p', 'sc-prose', item.meaning));
+  }
+  rules.append(el('summary', 'sc-sect-title', zh ? '评分细则' : 'Scoring rules'), body);
+  return rules;
+}
+
 function renderHardware(ctx, report, actions) {
   const t = T[ctx.lang];
+  const zh = ctx.lang === 'zh';
   const hw = report.hardware;
   const sum = report.summary || {};
   const dims = hw.dimensions || [];
-  const root = el('div', 'sc-root');
+  const root = el('div', 'sc-root sc-hardware');
 
   /* ---- 首屏：结论 + 环 + 小格。这一屏决定这页是「病历」还是「仪表盘」。 ---- */
   const hero = el('div', `sc-hero sc-hero-${sum.tone || 'muted'}`);
@@ -570,7 +609,8 @@ function renderHardware(ctx, report, actions) {
 
   const stateBlock = el('div', 'sc-hero-state-block');
   stateBlock.append(el('div', 'sc-hero-state', sum.stateWord || hw.level || t.unknown));
-  if (sum.sentence) stateBlock.append(el('p', 'sc-hero-line', sum.sentence));
+  const lead = sum.simple?.overall ?? sum.sentence;
+  if (lead) stateBlock.append(el('p', 'sc-hero-line', lead));
 
   const heroActions = el('div', 'sc-head-actions');
   const refresh = el('button', 'sc-btn', t.refresh);
@@ -582,7 +622,10 @@ function renderHardware(ctx, report, actions) {
   heroHead.append(stateBlock);
   hero.append(heroHead);
 
-  if (sum.detail) hero.append(el('p', 'sc-hero-detail', sum.detail));
+  if (!sum.simple && sum.detail) hero.append(el('p', 'sc-hero-detail', sum.detail));
+  if (Number.isFinite(hw.scoreLimit) && hw.scoreLimit < 99) {
+    hero.append(el('p', 'sc-hero-detail', zh ? '有关键环节需要先留意，已计入本次总分。' : 'A critical area needs attention and limits the overall score.'));
+  }
   if (hw.overall === null) hero.append(el('p', 'sc-hero-detail', t.noOverall));
 
   // 六个小格：一眼看完谁好谁差，不用滚。
@@ -609,43 +652,24 @@ function renderHardware(ctx, report, actions) {
   chart.append(chartLeft, chartRight);
   root.append(chart);
 
-  /* ---- 旧存档没有 summary 字段：退回平铺六维，不白屏 ---- */
-  if (!sum.top && !sum.rest) {
-    const box = el('div', 'sc-dims');
-    for (const d of dims) box.append(dimRow(d, t, ctx.lang));
-    root.append(box);
-    if (report.problems?.length) {
-      const pbox = el('div', 'sc-problems');
-      pbox.append(el('div', 'sc-label', t.readProblems));
-      for (const p of report.problems) pbox.append(el('div', 'sc-prose', p));
-      root.append(pbox);
-    }
-    root.append(el('div', 'sc-footer', t.footer));
-    return root;
-  }
-
-  /* ---- 六项全部展开：排序后逐项读证据 ---- */
-  const allScored = [...(sum.top || []), ...(sum.rest || [])];
-  if (allScored.length) {
+  const items = sum.top || sum.rest
+    ? [...(sum.top ?? []), ...(sum.rest ?? []), ...(sum.unknown ?? [])]
+    : dims;
+  if (items.length) {
     const sect = el('div', 'sc-sect');
     const head = el('div', 'sc-sect-head');
     head.append(el('span', 'sc-sect-title', t.allDimensions));
     head.append(el('span', 'sc-sect-note', t.allDimensionsNote));
     sect.append(head);
     const box = el('div', 'sc-dims');
-    for (const d of allScored) box.append(dimRow(d, t, ctx.lang));
+    for (const d of items) box.append(dimRow(d, t, ctx.lang, true));
     sect.append(box);
     root.append(sect);
   }
 
-  if (sum.unknown?.length) {
-    const box = el('div', 'sc-dims sc-dims-rest');
-    for (const d of sum.unknown) box.append(dimRow(d, t, ctx.lang));
-    root.append(box);
-  }
-
-  /* ---- 你可以做的：陪伴产品不能只判分不给路 ---- */
-  if (sum.care?.length) {
+  if (sum.simple) {
+    root.append(hardwareAdvice(sum.simple, zh));
+  } else if (sum.care?.length) {
     const sect = el('div', 'sc-care');
     sect.append(el('div', 'sc-sect-title', t.careTitle));
     for (const c of sum.care) {
@@ -663,6 +687,7 @@ function renderHardware(ctx, report, actions) {
     for (const p of report.problems) box.append(el('div', 'sc-prose', p));
     root.append(box);
   }
+  if (dims.length) root.append(hardwareRules(hw, ctx.lang));
   root.append(el('div', 'sc-footer', t.footer));
   return root;
 }
@@ -1182,25 +1207,31 @@ function renderPersona(ctx, report, panelActions) {
   if (profile.days) analysisHead.append(el('span', 'sc-profile-period', zh ? `近 ${profile.days} 天` : `Last ${profile.days} days`));
   analysis.append(analysisHead);
   const missing = zh ? '近期没有足够的记录。' : 'Not enough recent records.';
+  const character = el('div', 'sc-character-conclusion');
+  if (profile.character) {
+    character.append(el('h4', '', profile.character.conclusion), el('p', 'sc-profile-period', profile.character.basis));
+  } else {
+    character.append(el('p', 'sc-profile-period', zh ? '关于性格，还需要再积累一些日常记录。' : 'More days of activity will help reveal her personality.'));
+  }
+  analysis.append(character);
   if (profile.situations?.length) {
     for (const item of profile.situations) analysis.append(situationRow(item));
-  } else {
-    analysis.append(el('p', 'sc-profile-period sc-profile-observation-empty',
-      zh ? '多攒几天日常，就能看见她在不同情境里的小习惯。' : 'With more days of activity, her habits will show up here.'));
   }
-  const metrics = el('section', 'sc-profile-metrics');
-  metrics.append(el('h4', '', profile.days
+  const metrics = el('section', 'sc-profile-card sc-profile-metrics');
+  metrics.append(el('h3', '', profile.days
     ? (zh ? `近 ${profile.days} 天指标` : `Indicators over the last ${profile.days} days`)
     : (zh ? '近期指标' : 'Recent indicators')));
+  const metricGrid = el('div', 'sc-profile-metric-grid');
   for (const item of profile.evidence) {
-    metrics.append(profileMetric(item, t, ctx.lang, missing));
+    metricGrid.append(profileMetric(item, t, ctx.lang, missing));
   }
-  analysis.append(metrics);
+  metrics.append(metricGrid);
   const recent = el('section', 'sc-profile-card sc-profile-recent');
   recent.append(el('h3', '', zh ? '最近的她' : 'Her lately'));
   if (profile.change) recent.append(followupCard(ctx, profile, profile.change, panelActions));
-  if (!profile.recent.length) recent.append(el('p', 'sc-profile-period', missing));
-  for (const item of profile.recent) {
+  const diary = profile.diary ?? profile.recent;
+  if (!diary.length) recent.append(el('p', 'sc-profile-period', missing));
+  for (const item of diary) {
     const row = el('div', 'sc-profile-observation');
     const wording = el('div', 'sc-profile-observation-text');
     const sentence = el('p', '', item.summary);
@@ -1210,7 +1241,7 @@ function renderPersona(ctx, report, panelActions) {
     recent.append(row);
   }
   columns.append(analysis, recent);
-  root.append(columns);
+  root.append(columns, metrics);
 
   const quiz = el('details', 'sc-profile-card sc-profile-quiz');
   quiz.append(el('summary', '', zh ? '奇遇小测' : 'Curiosity quiz'));
@@ -1359,7 +1390,9 @@ function renderMethod(ctx, report) {
   root.append(el('div', 'sc-prose sc-lead', t.methodIntro));
 
   root.append(el('h4', 'sc-h', t.methodHw));
-  root.append(el('div', 'sc-prose sc-method-principles', t.methodHardwarePrinciples));
+  for (const line of report.hardware?.scoring ?? [t.methodHardwarePrinciples]) {
+    root.append(el('div', 'sc-prose sc-method-principles', line));
+  }
   for (const d of report.hardware?.dimensions || []) {
     const block = el('div', 'sc-method-dim');
     block.append(el('div', 'sc-method-title', d.title));

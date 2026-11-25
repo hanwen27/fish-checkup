@@ -71,19 +71,26 @@ const MIN_DAY_SAMPLE = 5;
 function dailySeries(recs, bucketFn, scoreFn) {
   const perDay = new Map();
   for (const r of recs) {
+    if (!Number.isFinite(new Date(r.ts).getTime())) continue;
     const day = dayKeyOf(r.ts);
     const list = perDay.get(day) ?? [];
     list.push(r);
     perDay.set(day, list);
   }
-  const series = [...perDay.entries()]
-    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
-    .map(([day, list]) => {
-      if (list.length < MIN_DAY_SAMPLE) return { day, n: list.length, score: null };
-      const atom = bucketFn(list);
-      const s = Number.isFinite(atom) ? scoreFn(atom) : null;
-      return { day, n: list.length, score: Number.isFinite(s) ? round1(clamp(s)) : null };
-    });
+  const loggedDays = [...perDay.keys()].sort();
+  const firstDay = Date.parse(loggedDays[0]);
+  const lastDay = Date.parse(loggedDays.at(-1));
+  const span = Math.round((lastDay - firstDay) / 86400000) + 1;
+  const days = span > 0 && span <= 90
+    ? Array.from({ length: span }, (_, i) => new Date(firstDay + i * 86400000).toISOString().slice(0, 10))
+    : loggedDays;
+  const series = days.map((day) => {
+    const list = perDay.get(day) ?? [];
+    if (list.length < MIN_DAY_SAMPLE) return { day, n: list.length, score: null };
+    const atom = bucketFn(list);
+    const s = Number.isFinite(atom) ? scoreFn(atom) : null;
+    return { day, n: list.length, score: Number.isFinite(s) ? round1(clamp(s)) : null };
+  });
   const points = series.filter((p) => Number.isFinite(p.score));
 
   const mean = (arr) => arr.reduce((a, p) => a + p.score, 0) / arr.length;
@@ -96,13 +103,16 @@ function dailySeries(recs, bucketFn, scoreFn) {
   const recent = points.length > 0 ? points[points.length - 1] : null;
 
   let delta = null;
+  let comparison = null;
   if (points.length >= 4) {
     const win = Math.min(3, Math.floor(points.length / 2));
     const late = points.slice(points.length - win);
     const early = points.slice(0, points.length - win);
-    if (early.length > 0) delta = mean(late) - medianOf(early);
+    delta = mean(late) - medianOf(early);
+    const windowOf = (items) => ({ start: items[0].day, end: items.at(-1).day, days: items.length });
+    comparison = { earlier: windowOf(early), recent: windowOf(late) };
   }
-  return { series, delta, recent };
+  return { series, delta, comparison, recent };
 }
 
 
@@ -125,7 +135,11 @@ function stabilityRaw(rate) {
 }
 
 export function stability(usage) {
-  const recs = usage?.records ?? [];
+  const all = usage?.records ?? [];
+  const recs = all.filter((r) => (!r.role || r.role === 'main')
+    && !['diagnostic', 'probe'].includes(String(r.purpose).toLowerCase())
+    && ['completed', 'failed', 'aborted'].includes(r.outcome));
+  const excluded = all.length - recs.length;
   if (!usage?.ok || recs.length < MIN_SAMPLE) {
     return dim('stability', '稳定性', 0.22, {
       state: 'unknown',
@@ -133,6 +147,7 @@ export function stability(usage) {
       headline: recs.length === 0 ? '还没有用量记录，没法判断稳不稳。' : `只有 ${recs.length} 次调用，样本太少，先不下结论。`,
       evidence: [
         { label: '样本条数', value: String(recs.length), hint: `门槛 ${MIN_SAMPLE} 条` },
+        { label: '排除记录', value: String(excluded), hint: '诊断、非主会话及已丢弃响应不计入模型稳定性' },
         { label: '数据文件', value: usage?.path ?? '—', hint: usage?.reason ?? '' },
       ],
       formula: '失败率 ≤2% 得满分；2%→10% 线性降到 80；10%→30% 线性降到 60；超过 30% 每多 1% 再扣 1.5 分，下限 45。被中断（aborted）按半次失败计。',
@@ -164,7 +179,7 @@ export function stability(usage) {
   const score = calibrate(raw);
   // 逐日曲线用同一套映射：原始分 → 量表曲线，跟总分保持同一条口径。
   const dayScore = (r) => calibrate(stabilityRaw(r));
-  const { series, delta } = dailySeries(
+  const { series, delta, comparison } = dailySeries(
     recs,
     (list) => {
       let bad = 0;
@@ -183,6 +198,7 @@ export function stability(usage) {
     score: round1(score),
     series,
     delta,
+    comparison,
     // 首屏那行只讲「体感」，不摆原始计数——3675 次里 1074 次失败这种句子只让人紧张，
     // 真正的数字留在下面的依据里，想核对的人点开就能看到。
     headline:
@@ -192,6 +208,7 @@ export function stability(usage) {
             : '这段时间折腾得比较厉害，有不少调用没成。',
     evidence: [
       { label: '总调用', value: String(total) },
+      { label: '排除记录', value: String(excluded), hint: '诊断、非主会话及已丢弃响应' },
       { label: '成功', value: String(completed) },
       { label: '失败', value: String(failed) },
       { label: '被中断', value: String(aborted), hint: '按半次失败计' },
@@ -232,8 +249,10 @@ function latencyRaw(p95s) {
 
 export function latency(usage) {
   const all = usage?.records ?? [];
-  const recs = all.filter((r) => r.outcome === 'completed' && Number.isFinite(r.elapsedMs));
-  const excluded = all.filter((r) => r.outcome !== 'completed' && Number.isFinite(r.elapsedMs)).length;
+  const recs = all.filter((r) => (!r.role || r.role === 'main')
+    && !['diagnostic', 'probe'].includes(String(r.purpose).toLowerCase())
+    && r.outcome === 'completed' && Number.isFinite(r.elapsedMs) && r.elapsedMs >= 0);
+  const excluded = all.length - recs.length;
   if (!usage?.ok || recs.length < MIN_SAMPLE) {
     return dim('latency', '响应速度', 0.15, {
       state: 'unknown',
@@ -256,7 +275,7 @@ export function latency(usage) {
   const raw = latencyRaw(p95);
   const score = calibrate(raw);
   const dayScore = (v) => calibrate(latencyRaw(v));
-  const { series, delta } = dailySeries(
+  const { series, delta, comparison } = dailySeries(
     recs,
     (list) => percentile(list.map((r) => r.elapsedMs), 0.95) / 1000,
     dayScore,
@@ -268,6 +287,7 @@ export function latency(usage) {
     score: round1(score),
     series,
     delta,
+    comparison,
     headline:
       p95 <= 8 ? `九成五的调用在 ${round1(p95)} 秒内回来，很跟手。`
         : p95 <= 25 ? `最慢的那 5% 要 ${round1(p95)} 秒，大部分时候是跟手的。`
@@ -303,12 +323,14 @@ function cacheBaseScore(ratio) {
 
 function prefixChanges(records) {
   let changes = 0;
-  let last = null;
+  const lastByScope = new Map();
   for (const record of records) {
     const hash = record.prefixHash;
     if (!hash) continue;
-    if (last !== null && hash !== last) changes += 1;
-    last = hash;
+    const scope = `${record.model ?? ''}\u0000${record.sessionId ?? record.run ?? ''}`;
+    const last = lastByScope.get(scope);
+    if (last !== undefined && hash !== last) changes += 1;
+    lastByScope.set(scope, hash);
   }
   return changes;
 }
@@ -321,13 +343,17 @@ function cacheScore(ratio, changes, count) {
 }
 
 export function cacheHealth(usage) {
-  const recs = (usage?.records ?? []).filter((r) => Number.isFinite(r.input) && r.input > 0);
+  const tokenRecords = (usage?.records ?? []).filter((r) => Number.isFinite(r.input) && r.input > 0);
+  const recs = tokenRecords.filter((r) => Number.isFinite(r.cachedInput));
   if (!usage?.ok || recs.length < MIN_SAMPLE) {
     return dim('cache', '缓存与成本', 0.18, {
       state: 'unknown',
       score: null,
-      headline: `只有 ${recs.length} 条带 token 的记录，算不出命中率。`,
-      evidence: [{ label: '可用样本', value: String(recs.length), hint: `门槛 ${MIN_SAMPLE} 条` }],
+      headline: tokenRecords.length > 0 && recs.length === 0 ? '服务方没有上报缓存用量，暂时算不出命中率。' : `只有 ${recs.length} 条上报缓存用量的记录，样本太少。`,
+      evidence: [
+        { label: '已上报缓存样本', value: String(recs.length), hint: `门槛 ${MIN_SAMPLE} 条` },
+        { label: '未上报缓存样本', value: String(tokenRecords.length - recs.length) },
+      ],
       formula: '加权命中率 = Σ缓存命中 / Σ输入 token；≥90% 满分，70→90% 线性降到 60 分。前缀变化按每千条记录计，每次变化扣 2 分，最多扣 20。',
       meaning: '命中率高说明大部分上下文不用重算；但前缀一变就要重算，账单和延迟都会涨，所以还要看前缀变化频率。',
     });
@@ -345,7 +371,7 @@ export function cacheHealth(usage) {
   const score = calibrate(rawScore);
   const base = cacheBaseScore(ratio) ?? 0;
   const penalty = Math.max(0, base - (rawScore ?? base));
-  const { series, delta } = dailySeries(
+  const { series, delta, comparison } = dailySeries(
     recs,
     (list) => {
       let h = 0;
@@ -365,6 +391,7 @@ export function cacheHealth(usage) {
     score: round1(score),
     series,
     delta,
+    comparison,
     headline:
       ratio >= 0.85 && penalty < 6 ? `缓存命中 ${pct(ratio)}，前缀相当稳。`
         : ratio >= 0.85 ? `缓存命中 ${pct(ratio)}，前缀换得勤（每千条 ${round1(changeRate)} 次，扣 ${round1(penalty)} 分），还能再省点。`
@@ -375,6 +402,7 @@ export function cacheHealth(usage) {
       { label: '输入 token 合计', value: String(prompt) },
       { label: '其中命中缓存', value: String(hit) },
       { label: '加权命中率', value: pct(ratio) },
+      { label: '未上报缓存样本', value: String(tokenRecords.length - recs.length) },
       { label: '前缀哈希变化', value: `${changes} 次`, hint: `${round1(changeRate)} 次 / 千条，扣 ${round1(penalty)} 分` },
     ],
     formula: '加权命中率 = Σ缓存命中 / Σ输入 token；85% 以上原始满分，60→85% 线性降到 68。前缀变化按每千条记录计，每次扣 1.6 分、最多扣 18。原始分再按缺口曲线映射成展示分。',
@@ -467,6 +495,7 @@ export function contextConfig(config, contextWindow) {
   return dim('context', '上下文配置', 0.15, {
     state: grade(score),
     score: round1(score),
+    checks: { passed: full, sampled: known.length, total: checks.length },
     headline: full === known.length
       ? (unknown > 0 ? `能判的 ${known.length} 项都在合理区间，${unknown} 项缺值没算。` : '五项配置都在合理区间。')
       : near === known.length
@@ -488,23 +517,40 @@ function numOr(v) {
 
 /* ---------------------------------------------------------------- 交接 */
 
+function handoffGapLabel(minutes) {
+  if (minutes >= 1) return `${round1(minutes)} 分钟`;
+  const seconds = minutes * 60;
+  return seconds < 1 ? '不到 1 秒' : `${round1(seconds)} 秒`;
+}
+
 export function handoffHealth(handoffs) {
   const files = handoffs?.files ?? [];
   if (!handoffs?.ok || files.length < 4) {
+    const possibleIntervals = Math.max(0, (handoffs?.total ?? files.length) - 1);
     return dim('handoff', '交接健康', 0.15, {
       state: 'unknown',
       score: null,
-      headline: files.length === 0 ? '还没找到交接文件。' : `只有 ${files.length} 份交接，样本不够。`,
-      evidence: [{ label: '交接目录', value: handoffs?.path ?? '—', hint: handoffs?.reason ?? '' }],
-      formula: '四项各 25 分：①间隔变异系数 ≤0.5 ②每份体量 ≥200 字节 ③相邻两份内容不重复 ④间隔不短于 10 分钟。',
-      meaning: '交接太频繁说明上下文装不下、老要重来；两份内容一样说明交接没带来新东西，白花一次调用。',
+      headline: files.length === 0 ? '本期没有足够的带日期交接记录。' : `只有 ${files.length} 份本期交接，样本不够。`,
+      evidence: [
+        { label: '平均间隔', value: '—', hint: `可核验 0/${possibleIntervals} 段` },
+        { label: '间隔不短于 10 分钟', value: '—', hint: '暂不判断频率' },
+        { label: '交接目录', value: handoffs?.path ?? '—', hint: handoffs?.reason ?? '' },
+      ],
+      formula: '至少 4 份交接笔记和 2 段可核验的时间间隔才评分。',
+      meaning: '按交接笔记的时间和内容检查近期交接记录。',
     });
   }
   const gaps = [];
   for (let i = 1; i < files.length; i += 1) {
-    const g = (files[i].ts - files[i - 1].ts) / 60000;
+    const prior = files[i - 1];
+    const current = files[i];
+    if (prior.timeSource === 'mtime' || current.timeSource === 'mtime') continue;
+    const g = (current.ts - prior.ts) / 60000;
     if (Number.isFinite(g) && g > 0) gaps.push(g);
   }
+  const unavailable = files.length - 1 - gaps.length;
+  const enoughTiming = gaps.length >= 2;
+  const timingHint = `可核验 ${gaps.length}/${files.length - 1} 段${unavailable ? '，同一时间戳和仅有文件修改时间的间隔未计入' : ''}。`;
   const avgGap = gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : null;
   const sdGap = gaps.length > 1 ? Math.sqrt(gaps.reduce((a, b) => a + (b - avgGap) ** 2, 0) / (gaps.length - 1)) : null;
   const cv = avgGap && avgGap > 0 && sdGap !== null ? sdGap / avgGap : null;
@@ -514,7 +560,7 @@ export function handoffHealth(handoffs) {
   checks.push({
     name: '间隔稳定（CV ≤0.5）',
     state: cv === null ? 'unknown' : cv <= 0.5 ? 'ok' : cv <= 1.0 ? 'near' : 'bad',
-    detail: cv === null ? '样本不足' : `CV ${round1(cv)}，平均间隔 ${round1(avgGap)} 分钟`,
+    detail: cv === null ? '可核验的间隔不足' : `CV ${round1(cv)}，平均间隔 ${handoffGapLabel(avgGap)}`,
   });
   const thin = files.filter((f) => f.size < 200);
   checks.push({
@@ -534,28 +580,32 @@ export function handoffHealth(handoffs) {
   const tooClose = gaps.filter((g) => g < 10).length;
   checks.push({
     name: '间隔不短于 10 分钟',
-    state: tooClose === 0 ? 'ok' : tooClose <= Math.max(1, Math.floor(gaps.length * 0.15)) ? 'near' : 'bad',
-    detail: tooClose === 0 ? `最短 ${round1(Math.min(...gaps))} 分钟` : `${tooClose} 次间隔过密`,
+    state: !enoughTiming ? 'unknown' : tooClose === 0 ? 'ok' : tooClose <= Math.max(1, Math.floor(gaps.length * 0.15)) ? 'near' : 'bad',
+    detail: !enoughTiming ? '可核验的间隔不足，暂不判断频率'
+      : tooClose === 0 ? `最短 ${handoffGapLabel(Math.min(...gaps))}` : `${tooClose}/${gaps.length} 段短于 10 分钟`,
   });
 
   const full = checks.filter((c) => c.state === 'ok').length;
   const near = checks.filter((c) => c.state === 'near').length;
-  const score = calibrate(checksScore(checks));
+  const score = enoughTiming ? calibrate(checksScore(checks)) : null;
   return dim('handoff', '交接健康', 0.15, {
     state: grade(score),
     score: round1(score),
-    headline: full === checks.length
-      ? `最近 ${files.length} 次交接节奏正常。`
+    timing: { verifiedGaps: gaps.length, unavailable },
+    headline: !enoughTiming ? '交接笔记可以检查，可核验的时间太少，暂不给交接分。'
+      : full === checks.length
+      ? `已核验的 ${gaps.length} 段交接间隔正常。`
       : near === checks.length
         ? `${files.length} 次交接都能用，节奏略不匀。`
         : `${checks.length - full} 项没到最佳，其余还好。`,
     evidence: [
       { label: '样本份数', value: String(files.length), hint: `总共存 ${handoffs.total ?? files.length} 份` },
-      { label: '平均间隔', value: avgGap === null ? '—' : `${round1(avgGap)} 分钟` },
+      { label: '平均间隔', value: avgGap === null ? '—' : handoffGapLabel(avgGap), hint: timingHint },
       ...checks.map((c) => ({ label: c.name, value: mark(c.state), hint: c.detail })),
     ],
-    formula: '四项分三档计分（达标 1、勉强 0.6、不行 0）：①间隔变异系数 ≤0.5 ②每份体量 ≥200 字节 ③相邻两份内容不重复 ④间隔不短于 10 分钟。少数几份不合规算「勉强」，不算失败。',
-    meaning: '交接太频繁说明上下文装不下、老要重来；两份内容一样说明交接没带来新东西，白花一次调用。',
+    formula: '至少 4 份笔记、2 段可核验间隔。只用文件名中的事件时间，跳过相同时间戳和只有文件修改时间的间隔。四项检查包括间隔变异系数 ≤0.5、笔记 ≥200 字节、相邻笔记不重复、间隔 ≥10 分钟。达标记 1，勉强记 0.6，未达标记 0。',
+    formulaEn: 'Requires four notes and two verifiable gaps. Uses event timestamps from filenames and skips identical timestamps and modification times. Checks gap variation, note size, neighbouring duplicates and spacing of at least ten minutes.',
+    meaning: '间隔用于判断交接是否密集。笔记体量和重复情况可辅助定位需要复查的记录。',
   });
 }
 
@@ -600,6 +650,7 @@ function baseMemoryHealth(memory) {
           : 'Coo 基础记忆可读取，暂时没有日常文本可抽查。';
   return dim('memory', '记忆健康', 0.15, {
     state: grade(score), score, headline, evidence,
+    fileCheck: { readable: base.readable, sampled: base.sampled, settings: base.constitution },
     formula: '基础设定文件能否打开，与抽查文本的可读取比例，按有依据的项目等权计算。抽查到无法读取的子目录时另计一项。额外检索统计只作参考。',
     formulaEn: 'Checks whether the base settings file and sampled text files can be opened. An inaccessible sampled subdirectory adds a failing check. Optional retrieval statistics are informational.',
     meaning: '这一项检查基础记忆的文件访问。扩展提供了检索统计时，可以额外查看其命中率。',
@@ -743,8 +794,12 @@ export function summarize(dims) {
   const wSum = coverage;
   const raw = scored.reduce((a, d) => a + d.score * d.weight, 0) / (wSum || 1);
   const crippled = scored.some((d) => d.score < 50);
-  const overall = Math.min(Math.round(raw), crippled ? 75 : 100);
-  return { overall, ...levelOf(overall), unknownCount, scoredCount: scored.length, coverage: round1(coverage), crippled, calibration: CALIBRATION_VERSION };
+  const stabilityDimension = dims.find(({ id }) => id === 'stability');
+  const stabilityNeedsAttention = stabilityDimension && (!Number.isFinite(stabilityDimension.score) || stabilityDimension.score < 78);
+  const ceiling = crippled ? 75 : stabilityNeedsAttention ? 84 : 99;
+  const overall = Math.min(Math.round(raw), ceiling);
+  return { overall, ...levelOf(overall), unknownCount, scoredCount: scored.length, coverage: round1(coverage),
+    crippled, scoreLimit: Math.round(raw) > ceiling ? ceiling : null, calibration: CALIBRATION_VERSION };
 }
 
 /**

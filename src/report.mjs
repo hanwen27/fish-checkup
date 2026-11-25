@@ -8,6 +8,8 @@ import { runBehavior } from './behavior.mjs';
 import { buildProfile } from './profile.mjs';
 import { loadQuiz, scoreQuiz, compareAxes } from './quiz.mjs';
 import { buildSummary, buildConsistency } from './summary.mjs';
+import { dimensionGuide } from './hardware-guide.mjs';
+import { explainCalibration } from './scale.mjs';
 import { deriveStats, collectTags } from './tags.mjs';
 import { DIM_TITLES, DIM_FORMULAS, LEVELS, STATES, pick } from './text.mjs';
 
@@ -27,7 +29,9 @@ export function buildReport(snapshot, {
   const lang = pick(language);
   const hardware = runHardware(snapshot, { contextWindow });
   const behavior = runBehavior(snapshot);
-  const axes = localizeDimensions(hardware.dimensions, lang);
+  const axes = localizeDimensions(hardware.dimensions, lang).map((dimension) => ({
+    ...dimension, ...dimensionGuide(dimension, lang),
+  }));
   const level = LEVELS[lang][hardware.levelKey] ?? hardware.level;
 
   const quiz = quizResult ?? null;
@@ -84,6 +88,7 @@ export function buildReport(snapshot, {
       dimensions: axes,
       level,
       levelKey: hardware.levelKey,
+      scoring: explainCalibration(lang).split('\n'),
     },
     // 人话层：一句话结论 + 要紧的三件 + 你可以做的。旧字段一个没动，这层是新增的。
     summary: buildSummary({ ...hardware, dimensions: axes }, lang),
@@ -119,27 +124,38 @@ export function reportToText(report, { language = report.language, mode = 'detai
   lines.push('');
   // 先给一句话结论，再上数字——顺序本身就是「体检报告」和「仪表盘」的区别。
   const sum = report.summary;
-  if (sum?.sentence) {
-    lines.push(sum.sentence);
-    if (sum.detail) lines.push(sum.detail);
+  const dimensions = report.hardware.dimensions ?? [];
+  if (dimensions.length) {
+    if (sum?.simple) {
+      lines.push([sum.simple.overall, sum.simple.priority, sum.simple.scope].filter(Boolean).join(' '));
+      lines.push(sum.simple.next);
+    }
+    lines.push(zh ? `【硬件健康】${report.hardware.overall ?? '—'} ${report.hardware.level}` : `[Hardware] ${report.hardware.overall ?? '—'} ${report.hardware.level}`);
+    for (const d of dimensions) {
+      const trend = Number.isFinite(d.delta) && Math.round(Math.abs(d.delta)) >= 5
+        ? `（${d.delta > 0 ? '+' : ''}${Math.round(d.delta)}）`
+        : (d.trendStatus ? `（${d.trendStatus}）` : '');
+      lines.push(`  ${d.title}  ${d.checkLabel ?? d.score ?? '—'}${trend}  ${d.takeaway ?? d.headline}`);
+      for (const e of d.evidence ?? []) lines.push(`    · ${e.label}: ${e.value}${e.hint ? ` (${e.hint})` : ''}`);
+      if (d.suggestion) lines.push(`    · ${d.suggestion}`);
+    }
     lines.push('');
   }
-  lines.push(zh ? `【硬件健康】${report.hardware.overall ?? '—'} ${report.hardware.level}` : `[Hardware] ${report.hardware.overall ?? '—'} ${report.hardware.level}`);
-  for (const d of report.hardware.dimensions) {
-    // 小于 5 分的变动不标：风噪比信号大，写了只会让人反复追问。
-    const trend = Number.isFinite(d.delta) && Math.abs(d.delta) >= 5
-      ? `（${d.delta > 0 ? '+' : ''}${Math.round(d.delta)}）`
-      : '';
-    lines.push(`  ${d.title}  ${d.score ?? '—'}${trend}  ${d.headline}`);
-    for (const e of d.evidence ?? []) lines.push(`    · ${e.label}: ${e.value}${e.hint ? ` (${e.hint})` : ''}`);
-  }
-  if (sum?.care?.length) {
-    lines.push('');
-    lines.push(zh ? '可以先做的：' : 'What you can do:');
-    for (const c of sum.care) lines.push(`  · ${c.title}：${c.body}`);
-  }
-  lines.push('');
   const p = report.personality;
+  if (p.profile?.character) {
+    lines.push(zh ? '【性格分析】' : '[Personality observations]');
+    lines.push(p.profile.character.conclusion, p.profile.character.basis);
+    for (const item of p.profile.situations ?? []) {
+      lines.push(`  · ${item.context}，${item.choice}（${item.source}）`);
+      for (const line of item.lines) lines.push(`    ${line}`);
+    }
+    lines.push('');
+  }
+  if (p.profile?.diary?.length) {
+    lines.push(zh ? '【最近的她】' : '[Her lately]');
+    for (const item of p.profile.diary) lines.push(`  · ${item.title}：${item.summary}`);
+    lines.push('');
+  }
   const hasTags = !!(p.tags && p.tags.tags);
   // area=hardware 时人格这半被清空，连标题都不该出现——空标题会让人以为数据丢了。
   if (hasTags || p.taken) {
@@ -187,6 +203,11 @@ export function reportToText(report, { language = report.language, mode = 'detai
     for (const pr of report.problems) lines.push(`  · ${pr}`);
   }
   lines.push('');
+  if (dimensions.length && report.hardware.scoring?.length) {
+    lines.push(zh ? '【评分细则】' : '[Scoring rules]', ...report.hardware.scoring);
+    for (const d of dimensions) lines.push(`  · ${d.title}：${d.formula}`);
+    lines.push('');
+  }
   lines.push(zh ? '只读取，不修改。' : 'Reads only. Writes nothing.');
   return lines.join('\n');
 }
@@ -205,69 +226,28 @@ function briefText(report, { language = report.language } = {}) {
   const lang = pick(language);
   const zh = lang === 'zh';
   const lines = [];
-  const hw = report.hardware ?? {};
-  const sum = report.summary ?? {};
-  const p = report.personality ?? {};
-
-  lines.push(zh ? '【一句话】' : '[In one line]');
-  if (Number.isFinite(hw.overall)) {
-    lines.push(zh
-      ? `硬件 ${hw.overall} 分，${hw.level}。${sum.sentence ?? ''}`.trim()
-      : `Hardware ${hw.overall}/100, ${hw.level}. ${sum.sentence ?? ''}`.trim());
-  } else {
-    lines.push(zh ? '这次数据不够，暂时给不出硬件分。' : 'Not enough data for a hardware score this time.');
+  const dimensions = report.hardware?.dimensions ?? [];
+  if (dimensions.length) {
+    const { overall, priority, scope, next } = (report.summary?.simple ?? buildSummary(report.hardware, lang).simple);
+    lines.push(zh ? '【运行近况】' : '[How things are running]');
+    lines.push([overall, priority || scope].filter(Boolean).join(' '));
+    if (priority && scope) lines.push(scope);
+    lines.push(next);
   }
-  lines.push('');
-
-  lines.push(zh ? '【最值得看的一处】' : '[Worth a look]');
-  const weak = (hw.dimensions ?? [])
-    .filter((d) => d.state === 'bad' || d.state === 'warn')
-    .sort((a, b) => (100 - a.score) * a.weight - (100 - b.score) * b.weight)
-    .pop();
-  if (weak) {
-    lines.push(zh
-      ? `${weak.title}：${weak.headline}`
-      : `${weak.title}: ${weak.headline}`);
-  } else if ((hw.dimensions ?? []).length > 0) {
-    lines.push(zh ? '六项都在正常范围，没有特别要吃力的地方。' : 'All six areas are within range.');
-  } else {
-    lines.push(zh ? '这块没有可判的数据。' : 'Nothing scorable here.');
-  }
-  lines.push('');
-
-  lines.push(zh ? '【能做的】' : '[What can be done]');
-  if (sum.care?.length) {
-    for (const c of sum.care) lines.push(`· ${c.body}`);
-  } else {
-    lines.push(zh ? '不用做什么，保持现在的用法就行。' : 'Nothing needed — keep using it as you do.');
-  }
-  lines.push('');
-
-  lines.push(zh ? '【标签】' : '[Tags]');
-  const tags = p.tags;
-  if (tags) {
-    lines.push(zh ? `外号：${tags.nickname}` : `Nickname: ${tags.nickname}`);
-    if (tags.verdict) lines.push(tags.verdict);
-    // 只给前四条：口语稿是给她转述的，不是清单。剩下的在 detail 版里。
-    for (const t of (tags.tags ?? []).slice(0, 4)) lines.push(`· ${t.label}（${t.tierLabel}）——${t.roast}`);
-    if (tags.hitCount > 4) lines.push(zh ? `（还有 ${tags.hitCount - 4} 条，面板上能看到）` : `(${tags.hitCount - 4} more on the panel)`);
-    // 组合彩蛋单独一句：这是「抽到了」的地方，转述时最值得提。
-    if (tags.combos?.length) {
-      const top = tags.combos[0];
-      lines.push(zh ? `还凑出一个组合：「${top.title}」——${top.blurb}` : `Combo unlocked: "${top.title}" — ${top.blurb}`);
+  const profile = report.personality?.profile;
+  if (profile) {
+    lines.push(zh ? '【性格近况】' : '[Personality lately]');
+    if (profile.character) {
+      lines.push(profile.character.conclusion + (zh ? '。' : '.'));
+      lines.push(profile.character.basis + (zh ? '。' : '.'));
+    } else {
+      lines.push(zh ? '关于性格，这次还需要多一点日常记录。' : 'There are too few recent observations for a personality conclusion.');
     }
+    const note = profile.diary?.[0];
+    if (note) lines.push(note.summary);
   }
-  if (p.creative?.taken && p.creative.blurb) lines.push(p.creative.blurb);
-  if (p.consistency?.sentence && p.taken) lines.push(p.consistency.sentence);
-  lines.push('');
-
-  lines.push(zh
-    ? '【怎么跟人说】照上面的意思用自己的话说，别念数字、别提具体哪天最差；用「现在怎么样、哪块值得看看、要不要做点什么」这个顺序。'
-    : '[How to say it] Paraphrase in your own words. Do not recite raw counts or name the worst day. Order: how it is now, what to look at, what to do.');
-  lines.push(zh ? '只读取，不修改。' : 'Reads only. Writes nothing.');
   return lines.join('\n');
 }
-
 function fmt(ms) {
   if (!Number.isFinite(ms)) return '—';
   const d = new Date(ms);

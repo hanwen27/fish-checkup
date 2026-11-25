@@ -6,6 +6,7 @@
  */
 
 import { pick, DIM_TITLES } from './text.mjs';
+import { dimensionGuide, simpleHardware } from './hardware-guide.mjs';
 
 /** 这维有多痛：扣掉的分 × 权重。用来排序，不是因为它是「分数」。 */
 function severity(dim) {
@@ -40,26 +41,6 @@ const STATE_WORD = {
 
 const TONE = { solid: 'calm', good: 'calm', fair: 'warm', poor: 'strain', insufficient: 'muted' };
 
-/** 每个维度「可以做什么」——只在它确实偏弱时才给，不铺满。 */
-const CARE = {
-  zh: {
-    stability: '卡多半是模型调用在出错。等一会儿再试，比连着重发管用。',
-    latency: '慢的是最慢那 5%。赶上长任务别催，它本来就要那么久。',
-    cache: '前缀在反复变。少改系统提示词、少在中途插新指令，账单会明显下来。',
-    context: '上下文配得偏紧，她会频繁交接，看起来像忘事。往宽放一点会好很多。',
-    handoff: '交接太密。两次对话之间隔久一点，她反而更连贯。',
-    memory: '命中率低不等于记性差——它看的是「取回来的有没有被用上」。多提具体的人和事，更容易翻到。',
-  },
-  en: {
-    stability: 'Stalls are usually failed model calls. Wait a moment rather than resending immediately.',
-    latency: 'It is the slowest 5%. Long jobs take as long as they take — do not push.',
-    cache: 'The prefix keeps changing. Fewer mid-conversation edits to the system prompt lowers the bill.',
-    context: 'Context is configured tight, so she hands off often and looks forgetful. Loosening it helps.',
-    handoff: 'Handoffs are too frequent. Longer gaps between sessions make her more coherent.',
-    memory: 'A low hit rate is not bad memory — it counts retrieved items that got used. Name concrete people and things; they are easier to find.',
-  },
-};
-
 /**
  * @param {object} hardware runHardware() 的返回值
  * @param {string} language
@@ -86,10 +67,10 @@ export function buildSummary(hardware, language = 'zh') {
   const detail = composeDetail({ zh, ranked, scored, unknown });
 
   // 只在确实偏弱（bad/warn）的维度里给建议，最多三条。
-  const care = ranked
-    .filter((d) => d.state === 'bad' || d.state === 'warn')
+  const care = [...top, ...rest]
+    .filter((d) => d.needsAttention)
     .slice(0, 3)
-    .map((d) => ({ id: d.id, title: DIM_TITLES[lang]?.[d.id] ?? d.title, body: CARE[lang][d.id] ?? '' }))
+    .map((d) => ({ id: d.id, title: d.title, body: d.suggestion }))
     .filter((c) => c.body);
 
   return {
@@ -102,6 +83,7 @@ export function buildSummary(hardware, language = 'zh') {
     rest,
     unknown,
     care,
+    simple: simpleHardware([...top, ...rest, ...unknown], lang),
   };
 }
 
@@ -113,13 +95,15 @@ function brief(dim, lang) {
     score: Number.isFinite(dim.score) ? dim.score : null,
     state: dim.state,
     headline: dim.headline,
+    ...dimensionGuide(dim, lang),
     // 详情跟着走：点开要能看到依据/公式/意义，不能只剩一个标题。
     evidence: dim.evidence ?? [],
     formula: dim.formula ?? '',
     meaning: dim.meaning ?? '',
     // 稀疏序列：null 表示那天样本不够，画的时候断线，不假装连上。
     series: Array.isArray(dim.series) ? dim.series : [],
-    delta: Number.isFinite(dim.delta) ? Math.round(dim.delta) : null,
+    delta: Number.isFinite(dim.delta) ? dim.delta : null,
+    comparison: dim.comparison ?? null,
     trend: trendWord(dim.delta, lang, dim.state),
     trendUp: Number.isFinite(dim.delta) ? dim.delta > 0 : null,
     sparkHint: zh ? '近几天（点开看依据）' : 'Recent days (open for evidence)',

@@ -37,6 +37,54 @@ const SOURCES = {
   '实际发出消息': 'Sent messages',
 };
 
+const CHARACTER = {
+  '暖心派': ['warm', '温和、会顾及别人的感受', 'warm and attentive to others'],
+  '共情派': ['warm', '温和、会顾及别人的感受', 'warm and attentive to others'],
+  '条理控': ['orderly', '做事有条理', 'organised'],
+  '有安排': ['orderly', '做事有条理', 'organised'],
+  '爱追问': ['curious', '好奇、喜欢追问', 'curious and willing to ask more'],
+  '细节控': ['detail', '说话细致', 'attentive to details'],
+  '爱看细节': ['detail', '说话细致', 'attentive to details'],
+  '笑声多': ['playful', '说话带点俏皮', 'playful in conversation'],
+  '爱商量': ['considerate', '说话留余地', 'considerate in how she offers suggestions'],
+  '直球派': ['direct', '直爽、习惯讲重点', 'direct and to the point'],
+  '联想派': ['imagination', '联想多、容易想到新角度', 'imaginative and quick to make connections'],
+  '解题派': ['analytical', '爱理清问题', 'likes to get to the root of a problem'],
+  '随机应变': ['flexible', '随和灵活、遇事能调整', 'flexible when plans change'],
+  '爱接话': ['outgoing', '聊天时比较主动', 'proactive in conversation'],
+  '自己冒泡': ['outgoing', '聊天时比较主动', 'proactive in conversation'],
+  '先观察': ['reserved', '有点慢热', 'takes a little while to warm up'],
+  '点名就来': ['reserved', '开口前习惯先观察', 'often listens before chiming in'],
+  '潜水派': ['reserved', '互动时偏安静', 'reserved in conversation'],
+  '话匣子': ['detail', '开口后喜欢说完整', 'likes to give a fuller explanation'],
+  '短句王': ['concise', '表达简洁', 'concise when speaking'],
+  '惜字派': ['concise', '开口少、表达简洁', 'speaks selectively and concisely'],
+};
+
+function characterConclusion(cues, language) {
+  const traits = [];
+  const seen = new Set();
+  for (const cue of cues) {
+    const trait = CHARACTER[cue.trait];
+    if (!trait || seen.has(trait[0])) continue;
+    seen.add(trait[0]);
+    traits.push({ trait, source: cue.source });
+    if (traits.length === 2) break;
+  }
+  if (!traits.length) return null;
+  const zh = language === 'zh';
+  const quizOnly = traits.every(({ source }) => source === '奇遇小测自述');
+  const warmAndOrderly = seen.has('warm') && seen.has('orderly');
+  return {
+    conclusion: zh && warmAndOrderly ? '说话温和，做事有条理' : traits.map(({ trait }) => trait[zh ? 1 : 2]).join(zh ? '，' : ' · '),
+    basis: quizOnly
+      ? (zh ? '目前主要来自奇遇小测' : 'Based on the Curiosity Quiz so far')
+      : traits.some(({ source }) => source.includes('小测'))
+        ? (zh ? '结合近期观察和小测' : 'Based on recent observations and the quiz')
+        : (zh ? '基于近期重复出现的表现' : 'Based on repeated recent observations'),
+  };
+}
+
 export function profileSituations(cues, language, evidence, activity, quiz) {
   const zh = language === 'zh';
   const supported = cues.filter(({ trait }) => SITUATIONS[trait]);
@@ -66,7 +114,7 @@ export function profileSituations(cues, language, evidence, activity, quiz) {
   if (first === '有安排' && traits.has('暖心派')) scene = 'earnest-greenhouse';
   if (first === '直球派' && traits.has('爱商量')) scene = 'principled-shell';
   if (first === '爱商量' && traits.has('暖心派')) scene = 'mianmian-notebook';
-  return { situations, scene };
+  return { situations, scene, character: characterConclusion(supported.slice(0, 3), language) };
 }
 
 export function collectProfileSignals(activity, entries) {

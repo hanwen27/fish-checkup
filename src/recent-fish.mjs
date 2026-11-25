@@ -1,5 +1,6 @@
 import { finishFishTopics, observeFishTopics } from './fish-topics.mjs';
 import { observeVoice, summarizeVoice } from './fish-voice.mjs';
+import { observeMediaSpeech, observeMediaTool } from './fish-diary.mjs';
 
 const PLAY_WORLDS = {
   terrarium: ['鱼的小世界', 'Terrarium'],
@@ -13,18 +14,38 @@ const PLAY_WORLDS = {
 const OPENERS = ['我在', '来了', '好呀', '好哦', '好啦', '嗯嗯', '等等', '等一下', '收到', '没事', '可以呀', '知道啦',
   '嘿嘿', '诶', '唔', '哎呀', '好耶', '当然', '慢慢来', 'okay', 'sure', 'got it', 'I’m here', 'I am here'];
 
+const EXPRESSIONS = ['我先试试', '我来试试', '我再想想', '让我想想', '慢慢来', '你觉得呢', '要不要试试', '可以试试看',
+  '我在呢', '我陪你', '别着急', '先歇一会儿', '好耶', '嘿嘿', '说重点', '具体来说', '有个细节', '换个办法', '再来一次', '先记下来'];
+
+function tallyWord(tally, word, day) {
+  const hit = tally.get(word) ?? { count: 0, days: new Set() };
+  hit.count += 1;
+  hit.days.add(day);
+  tally.set(word, hit);
+}
+
+function mostRepeated(tally) {
+  const first = [...tally.entries()].filter(([, hit]) => hit.count >= 3 && hit.days.size >= 2)
+    .sort((a, b) => b[1].count - a[1].count || b[1].days.size - a[1].days.size)[0];
+  return first ? { word: first[0], count: first[1].count, days: first[1].days.size } : null;
+}
+
 export function sampleRecentActivity(rows) {
   const plugins = new Map();
   const openers = new Map();
+  const phrases = new Map();
+  const media = new Map();
+  const videos = { started: 0 };
   const lengths = [];
   const sentDays = new Set();
   const topics = new Map();
   const voice = new Map();
   for (const row of rows) {
-    if (!row || row.failed) continue;
+    if (!row || row.failed || row.result?.failed || row.output?.failed) continue;
     if (Object.hasOwn(PLAY_WORLDS, row.mod)) {
       plugins.set(row.mod, (plugins.get(row.mod) ?? 0) + 1);
     }
+    observeMediaTool(media, row, videos);
     const sent = (row.mod === 'qqbot' && row.tool === 'qq_send')
       || (row.mod === 'console' && row.tool === 'console_send');
     if (!sent || typeof row.args?.text !== 'string') continue;
@@ -35,16 +56,17 @@ export function sampleRecentActivity(rows) {
     sentDays.add(day);
     observeFishTopics(topics, text, day);
     observeVoice(voice, text, day);
+    observeMediaSpeech(media, text, Date.parse(row.ts));
+    const wording = text.slice(0, 1800).replace(/「[^」]*」|“[^”]*”|`[^`]*`|^>.*$/gmu, '');
+    for (const phrase of EXPRESSIONS) {
+      if (wording.includes(phrase)) tallyWord(phrases, phrase, day);
+    }
     const lower = text.toLowerCase();
     const opener = OPENERS.find((term) => {
       const t = term.toLowerCase();
       return lower.startsWith(t) && (lower.length === t.length || /[\s\p{P}\p{Extended_Pictographic}]/u.test(lower[t.length]));
     });
-    if (!opener) continue;
-    const hit = openers.get(opener) ?? { count: 0, days: new Set() };
-    hit.count += 1;
-    hit.days.add(day);
-    openers.set(opener, hit);
+    if (opener) tallyWord(openers, opener, day);
   }
   lengths.sort((a, b) => a - b);
   const half = Math.floor(lengths.length / 2);
@@ -54,8 +76,10 @@ export function sampleRecentActivity(rows) {
     topics: finishFishTopics(topics),
     sentDays: sentDays.size,
     medianLength: lengths.length ? (lengths[half] + lengths[Math.floor((lengths.length - 1) / 2)]) / 2 : null,
-    opener: [...openers.entries()].filter(([, hit]) => hit.count >= 3 && hit.days.size >= 2)
-      .sort((a, b) => b[1].count - a[1].count).map(([word, hit]) => ({ word, count: hit.count }))[0] ?? null,
+    opener: mostRepeated(openers),
+    phrase: mostRepeated(phrases),
+    media: [...media.values()].sort((a, b) => b.at - a.at),
+    videoStarts: videos.started,
     plugin: [...plugins.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([id, count]) => ({ name: PLAY_WORLDS[id], count }))[0] ?? null,
   };

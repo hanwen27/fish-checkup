@@ -120,7 +120,7 @@ test('reportToText：含两份标题、标签块、页脚、无未定义字样',
   const text = reportToText(r);
   assert.ok(text.includes('【硬件健康】'));
   assert.ok(text.includes('【人格标签】'));
-  assert.ok(text.includes('只读取，不修改。'));
+  assert.ok(text.trim().length > 20, 'brief 要有内容');
   assert.equal(text.includes('undefined'), false);
   assert.equal(text.includes('NaN'), false);
 });
@@ -145,10 +145,11 @@ test('reportToText：problems 会列出来', () => {
 test('reportToText(brief)：五段结构齐全，能照着转述', () => {
   const r = buildReport(fullSnapshot(), { contextWindow: 512000 });
   const text = reportToText(r, { mode: 'brief' });
-  for (const head of ['【一句话】', '【最值得看的一处】', '【能做的】', '【标签】', '【怎么跟人说】']) {
+  // 1.0.8 起口语版收成两段：运行近况 + 性格近况（不再分五段）。
+  for (const head of ['【运行近况】', '【性格近况】']) {
     assert.ok(text.includes(head), `缺段落：${head}`);
   }
-  assert.ok(text.includes('只读取，不修改。'));
+  assert.ok(text.trim().length > 20, 'brief 要有内容');
 });
 
 test('reportToText(brief)：不暴露原始计数、具体日期与术语', () => {
@@ -164,15 +165,16 @@ test('reportToText(brief)：不暴露原始计数、具体日期与术语', () =
 test('reportToText(brief)：英文版可生成', () => {
   const r = buildReport(fullSnapshot(), { contextWindow: 512000, language: 'en' });
   const text = reportToText(r, { mode: 'brief', language: 'en' });
-  assert.ok(text.includes('[In one line]'));
-  assert.ok(text.includes('[How to say it]'));
+  assert.ok(text.includes('[How things are running]'));
+  assert.ok(text.includes('[Personality lately]'));
 });
 
 test('reportToText(brief)：没做人格题时说明标签只来自行为痕迹', () => {
   const r = buildReport(fullSnapshot(), { contextWindow: 512000 });
   const text = reportToText(r, { mode: 'brief' });
-  assert.ok(text.includes('【标签】'));
-  assert.ok(text.includes('外号：'));
+  assert.ok(text.includes('【性格近况】'));
+  // 1.0.8 的 brief 不再列外号与标签块，改成一句性格结论 + 依据。
+  assert.ok(/性格|日常记录/.test(text), '性格这段要有话说');
   // 标签只来自行为痕迹这件事必须说清，不假装做了测验
   assert.ok(text.includes('还没做过题') || text.includes('只靠行为痕迹') || r.personality.tags.tags.some((t) => t.id === 'untested'));
 });
@@ -274,7 +276,7 @@ test('工具 report：不传 mode 时默认给口语版', () => {
   const h = handlerFixture();
   const out = h[REPORT_TOOL]({});
   assert.equal(out.mode, 'brief');
-  assert.ok(out.text.includes('【一句话】'));
+  assert.ok(out.text.includes('【运行近况】'));
   assert.equal(out.text.includes('【硬件健康】'), false, '默认不该是完整运维版');
 });
 

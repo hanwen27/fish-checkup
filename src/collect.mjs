@@ -41,34 +41,28 @@ function readTailLines(path, maxLines) {
   const fd = openSync(path, 'r');
   try {
     let pos = st.size;
-    let carry = Buffer.alloc(0);
-    const chunks = [];
     let lineCount = 0;
     while (pos > 0 && lineCount <= maxLines) {
       const size = Math.min(TAIL_CHUNK, pos);
+      const start = pos - size;
       pos -= size;
       const buf = Buffer.alloc(size);
       readSync(fd, buf, 0, size, pos);
-      const joined = Buffer.concat([buf, carry]);
-      // 从后往前数换行，切出完整行；剩下不完整的头留给下一块。
-      let cut = joined.length;
-      for (let i = joined.length - 1; i >= 0; i -= 1) {
-        if (joined[i] === 0x0a) {
+      let boundary = null;
+      for (let i = buf.length - 1; i >= 0; i -= 1) {
+        if (buf[i] === 0x0a) {
           lineCount += 1;
           if (lineCount > maxLines) {
-            cut = i + 1;
+            boundary = start + i + 1;
             break;
           }
         }
       }
-      chunks.push(joined.subarray(cut));
-      carry = joined.subarray(0, cut);
-      if (lineCount > maxLines) break;
+      if (boundary !== null) { pos = boundary; break; }
     }
-    const tail = Buffer.concat([carry, ...chunks.reverse()]).toString('utf8');
-    const lines = tail.split('\n').filter((l) => l.trim());
-    // 第一行可能是被截断的半行，丢掉。
-    if (pos > 0 && lines.length > 0) lines.shift();
+    const tail = Buffer.alloc(st.size - pos);
+    readSync(fd, tail, 0, tail.length, pos);
+    const lines = tail.toString('utf8').split('\n').filter((l) => l.trim());
     return { lines: lines.slice(-maxLines), bytes: st.size, truncated: pos > 0 };
   } finally {
     closeSync(fd);
@@ -106,17 +100,19 @@ export function readUsage(dataDir, { sampleDays = 7, now = new Date() } = {}) {
     const tsRaw = row?.ts ?? attempt.startedAt;
     const ts = typeof tsRaw === 'string' ? Date.parse(tsRaw) : NaN;
     if (!Number.isFinite(ts)) { skipped += 1; continue; }
-    if (ts < since) continue;
+    if (ts < since || ts > now.getTime()) continue;
     const meters = attempt.meters ?? {};
     records.push({
       ts,
       model: attempt.origin?.model ?? row?.model ?? '',
+      sessionId: row?.sessionId ?? row?.run ?? '',
+      role: row?.role ?? '',
       outcome: attempt.outcome ?? '',
       status: numbered(attempt.status),
       elapsedMs: numbered(attempt.elapsedMs),
       input: numbered(meters.input) ?? numbered(row?.promptTokens),
       output: numbered(meters.output) ?? numbered(row?.completionTokens),
-      cachedInput: numbered(meters.cachedInput) ?? numbered(row?.cacheHitTokens),
+      cachedInput: Object.hasOwn(meters, 'cachedInput') ? numbered(meters.cachedInput) : numbered(row?.cacheHitTokens),
       prefixHash: typeof row?.prefixHash === 'string' ? row.prefixHash : '',
       run: typeof row?.run === 'string' ? row.run : '',
       purpose: attempt.purpose ?? '',
@@ -167,7 +163,7 @@ export function readRuntimeConfig(botDir, defaults) {
 }
 
 /** handoffs/*.md → 最近 N 份的「时间 + 体量 + 内容指纹」。不保留正文。 */
-export function readHandoffs(memoryDir, { limit = 30 } = {}) {
+export function readHandoffs(memoryDir, { limit = 30, sampleDays = 7, now = new Date() } = {}) {
   const dir = join(memoryDir, 'handoffs');
   if (!existsSync(dir)) return { ok: false, path: dir, reason: 'missing', files: [] };
   let names;
@@ -180,12 +176,17 @@ export function readHandoffs(memoryDir, { limit = 30 } = {}) {
   for (const name of names) {
     const abs = join(dir, name);
     const st = safeStat(abs);
-    if (!st) continue;
-    // 时间优先取文件内嵌的 YYYYMMDD-HHmm（文件名），取不到退回 mtime。
-    files.push({ name, abs, size: st.size, mtime: st.mtimeMs, ts: timestampFromName(name) ?? st.mtimeMs });
+    if (!st?.isFile()) continue;
+    // 修改时间只用于安排未识别文件的浏览顺序，不能证明交接发生时间。
+    const event = handoffTimestampFromName(name);
+    files.push({
+      name, abs, size: st.size, mtime: st.mtimeMs,
+      ts: event?.ts ?? st.mtimeMs, timeSource: event?.source ?? 'mtime',
+    });
   }
   files.sort((a, b) => a.ts - b.ts);
-  const recent = files.slice(-limit);
+  const since = now.getTime() - sampleDays * 86400000;
+  const recent = files.filter((f) => f.timeSource === 'mtime' || (f.ts >= since && f.ts <= now.getTime())).slice(-limit);
   for (const f of recent) {
     try {
       const body = readFileSync(f.abs, 'utf8');
@@ -197,12 +198,22 @@ export function readHandoffs(memoryDir, { limit = 30 } = {}) {
   return { ok: true, path: dir, reason: null, files: recent, total: files.length };
 }
 
-/** 文件名形如 20261124-0000-auto.md。 */
-function timestampFromName(name) {
-  const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})/.exec(name);
-  if (!m) return null;
-  const [, y, mo, d, h, mi] = m;
-  return new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi)).getTime();
+function handoffTimestampFromName(name) {
+  // Current Coo handoffNoteStamp writes UTC seconds with Windows-safe hyphens.
+  const utc = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})Z\.md$/iu.exec(name);
+  if (utc) {
+    const [, day, hour, minute, second] = utc;
+    const iso = `${day}T${hour}:${minute}:${second}.000Z`;
+    const ts = Date.parse(iso);
+    return Number.isFinite(ts) && new Date(ts).toISOString() === iso ? { ts, source: 'filename-utc' } : null;
+  }
+  const legacy = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(?:[-_][^\r\n]+)?\.md$/iu.exec(name);
+  if (!legacy) return null;
+  const [year, month, day, hour, minute] = legacy.slice(1).map(Number);
+  const date = new Date(year, month - 1, day, hour, minute);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day
+      || date.getHours() !== hour || date.getMinutes() !== minute) return null;
+  return { ts: date.getTime(), source: 'filename-local' };
 }
 
 /**
@@ -321,7 +332,7 @@ export function readMemory(memoryDir, { sampleDays = 7, now = new Date(), timezo
       const { rows } = parseJsonLines(readTailLines(join(dir, 'retrieve.jsonl'), MEMORY_MAX_LINES).lines);
       for (const r of rows) {
         const at = Date.parse(r?.at ?? '');
-        if (Number.isFinite(at) && at < since) continue;
+        if (!Number.isFinite(at) || at < since || at > now.getTime()) continue;
         acc.total += 1;
         if (Array.isArray(r?.hits) && r.hits.length > 0) acc.hit += 1;
         if (r?.injected === true) acc.injected += 1;
@@ -498,7 +509,6 @@ function readRecentActivity(dataDir, since, now) {
     .filter((entry) => entry.isDirectory() && /^r-\d{8}-\d{6}-[a-z0-9]+$/i.test(entry.name))
     .map(({ name }) => join(dir, name, 'toolcalls.jsonl'))
     .map((file) => ({ file, last: safeStat(file)?.mtimeMs ?? 0 }))
-    .filter(({ last }) => last >= since)
     .sort((a, b) => b.last - a.last)
     .slice(0, 32);
   const rows = [];
@@ -535,7 +545,7 @@ export function collectAll({ botDir, dataDir, memoryDir, sampleDays = 7, now = n
   const logDir = !memoryDirOverride && config.memoryLogsPath ? resolve(botDir, config.memoryLogsPath) : undefined;
   let handoffs;
   try {
-    handoffs = readHandoffs(workspace);
+    handoffs = readHandoffs(workspace, { sampleDays, now });
   } catch (err) {
     handoffs = { ok: false, path: join(workspace, 'handoffs'), reason: `unreadable: ${err?.message ?? err}`, files: [] };
   }
@@ -547,7 +557,7 @@ export function collectAll({ botDir, dataDir, memoryDir, sampleDays = 7, now = n
   } catch (err) {
     memory = { ok: false, path: logDir ?? join(workspace, 'memory'), reason: `unreadable: ${err?.message ?? err}`, problems: [] };
   }
-  memory.base = readBaseMemory(workspace);
+  memory.base = readBaseMemory(workspace, { now, profileDays: Math.max(sampleDays, 14) });
   if (memory.base.state !== 'ready') problems.push(`workspace: ${memory.base.state}`);
   // 没有独立统计日志是正常部署，只有实际读取错误才计入采集问题。
   if (!memory.ok && memory.reason !== 'missing') problems.push(`memory statistics: ${memory.reason}`);

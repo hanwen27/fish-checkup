@@ -59,7 +59,9 @@ test('近况优先用实际发言、娱乐和记忆补满三条，失败调用�
     { ts: '2026-11-02T09:00:00Z', mod: 'terrarium', failed: true },
   ]);
   assert.equal(activity.messages, 3);
-  assert.deepEqual(activity.opener, { word: '好呀', count: 3 });
+  assert.equal(activity.opener.word, '好呀');
+  assert.equal(activity.opener.count, 3);
+  assert.equal(activity.opener.days, 3, '1.0.8 起口头禅带上跨天天数');
   assert.equal(activity.plugin.count, 1);
   const profile = buildProfile({ profileDays: 14, entries: { profileCount: 8, profileDays: 4, profileTopics: [{ id: 'drawing', zh: '画画', en: 'drawing', count: 4, days: 2 }] } }, 'zh', activity);
   assert.deepEqual(profile.recent.map(({ id }) => id), ['opener', 'plugin', 'memory-drawing']);

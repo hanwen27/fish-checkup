@@ -62,8 +62,8 @@ export const TOOL_SCHEMAS = [
   {
     name: REPORT_TOOL,
     description:
-      'Read the current checkup report. Default mode=brief returns a short spoken-style summary you can paraphrase to the user '
-      + '(no raw counts, no dates, no formulas). mode=detail returns the full six dimensions with evidence. '
+      'Read the current checkup report. In default brief mode, explain the overall situation, the first thing worth checking, and one next step in plain language. '
+      + 'State when observations are missing and keep any uncertainty in the report. Use detail mode for scores, dates or evidence when asked. '
       + 'area=hardware / personality narrows it to one half.',
     parameters: {
       type: 'object',

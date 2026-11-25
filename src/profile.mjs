@@ -1,6 +1,7 @@
 import { buildCardDetails } from './card-profile.mjs';
 import { recentFacts } from './recent-fish.mjs';
 import { collectProfileSignals, profileSituations } from './profile-updates.mjs';
+import { freshDiary } from './fish-diary.mjs';
 
 const MIN_DECISIONS = 50;
 const MIN_GROUP = 12;
@@ -247,6 +248,7 @@ export function buildProfile(memory, language, activity, quiz) {
   const situation = profileSituations(cues, language, evidence, activity, quiz);
   const profile = {
     days, evidence, recent, title: !zh ? (situation.situations[0]?.choice ?? title) : title, ...card, ...situation,
+    diary: freshDiary(facts, activity, language, base),
     signals: collectProfileSignals(activity, entries),
   };
   const rows = recent.filter((row) => !row.empty).map(({ id, summary }) => [id, summary]);

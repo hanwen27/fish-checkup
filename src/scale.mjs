@@ -23,17 +23,16 @@
  */
 
 /** 曲线指数。1.0 = 不调整；>1 = 只压紧低分段，排序不变。 */
-export const CURVE_EXPONENT = 1.32;
+export const CURVE_EXPONENT = 1.15;
 
 /** 本量表版本号。改了曲线或阈值就换号，方便旧报告对账。 */
-export const CALIBRATION_VERSION = '2026-11-24.2';
+export const CALIBRATION_VERSION = '1.0.9';
 
 /**
  * 原始分 → 展示分。单调递增：raw 越高，结果一定越高，绝不颠倒。
- * 数学上就是把「缺口」开方式的压缩一次：deficit' = 100 × (deficit/100)^1.32
+ * 将缺口从 100 × (deficit/100)^1.32 收紧到 100 × (deficit/100)^1.15。
  *
- *   raw 100 → 100     raw 80 → 88     raw 60 → 70
- *   raw 40 → 50       raw 20 → 27     raw 0  → 0
+ *   raw 100 → 100     raw 80 → 84     raw 60 → 65
  */
 export function calibrate(raw) {
   if (!Number.isFinite(raw)) return null;
@@ -110,18 +109,18 @@ export function mark(state) {
 export function explainCalibration(language = 'zh') {
   if (language !== 'zh') {
     return [
-      'Scores are not raw ratios. Three established methods shape them:',
-      '1) Apdex — samples split into satisfied / tolerating / frustrated, score = (satisfied + 0.5 × tolerating) / total. It describes what most calls feel like instead of being dragged down by the slowest 5%.',
-      '2) SLO error budget — every dimension gets an allowance for normal noise; nothing is deducted while inside it.',
-      `3) Deficit curve (exponent ${CURVE_EXPONENT}) — keeps the ranking between dimensions but compresses the low band, so 60 does not read as a failing grade.`,
-      'Checks are graded in three bands (✓ met, ~ marginal, ✗ off). A marginal check still earns 0.6, because "slightly off" is not "unusable".',
+      `Scoring rules ${CALIBRATION_VERSION}. Most raw scores use 100 − 100 × (1 − raw/100)^${CURVE_EXPONENT}. Base memory uses the mean of the checks it could read.`,
+      'Weights: stability 22%, latency 15%, cache and cost 18%, context 15%, handoffs 15%, memory 15%. Overall scoring requires at least 75% weight coverage.',
+      'A scored dimension below 50 caps the total at 75. Missing stability or stability below 78 caps it at 84. The overall display is capped at 99 while live handoff and retrieval evidence is incomplete.',
+      'Daily charts need at least five observations on a day and two valid days. Four valid days are needed for comparison. The mean of the latest two or three valid days is compared with the median of earlier days.',
+      'Apdex is supplementary evidence. Configuration and file checks report their observed scope separately.',
     ].join('\n');
   }
   return [
-    '分数不是原始比例，经过三层成熟方法映射：',
-    '① Apdex（应用性能指数，开放标准）：样本按 满意 / 勉强 / 受不了 三档统计，得分 =（满意 + 勉强 × 0.5）/ 总数。它描述「多数调用是什么体感」，不会被最慢的 5% 拖死。',
-    '② SLO 错误预算（Google SRE 做法）：每一维都先留出一段正常波动的额度，额度里不扣分——小体检不是生产告警，不做羞辱式判定。',
-    `③ 缺口曲线（指数 ${CURVE_EXPONENT}）：只压紧低分段的间距，维度之间的高低顺序完全不变，但 60 分不会再被读成「不及格」。`,
-    '单条检查分三档：✓ 达标、~ 勉强、✗ 不行。勉强仍拿 0.6 学分——「差一点」不等于「不能用」。',
+    `评分口径 ${CALIBRATION_VERSION}。多数维度使用 100 − 100 × (1 − 原始分/100)^${CURVE_EXPONENT}。基础记忆按已观测的可读性检查取平均。`,
+    '稳定性权重 22%，响应速度 15%，缓存与成本 18%，上下文 15%，交接 15%，记忆 15%。权重覆盖达到 75% 才显示总分。',
+    '任一已评分维度低于 50，总分最高 75。稳定性缺项或低于 78，总分最高 84。现有数据对实际接续和召回的覆盖有限，总分暂以 99 为上限。',
+    '每日至少 5 条有效记录、至少 2 个有效日才显示折线。至少 4 个有效日才比较，取最近两到三个有效日的平均分，与更早有效日的中位数对比。',
+    'Apdex 是辅助依据。配置和文件的检查结果单独显示通过范围。',
   ].join('\n');
 }
