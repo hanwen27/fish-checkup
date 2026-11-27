@@ -1,0 +1,309 @@
+{
+  "ok": true,
+  "method": "DC-0.2",
+  "capability": {
+    "ready": true,
+    "blocker": null,
+    "modelReady": false,
+    "runtime": {
+      "stageTokens": 256000,
+      "softRatio": 0.85,
+      "keepRatio": 0.25,
+      "origin": "example-policy",
+      "softTokens": 217600,
+      "noteBudgetTokens": 64000,
+      "model": "未接入模型执行器",
+      "modelInputLimit": null,
+      "maxOutputTokens": null
+    },
+    "source": {
+      "id": "coo-cormini-source",
+      "name": "COO 原生 Cormini / MainLoop",
+      "fingerprint": "9cfafd85f65523f0ac85dc21c3a1c90df0cfe96f1d3363617f5cb19929bd24b2",
+      "files": [
+        {
+          "name": "bots/cormini/persona/persona.ts",
+          "sha256": "0c061f94a93ee97e7b7e079a3d8a2d4489c97a96e8cc6db378504556d5f9cad4"
+        },
+        {
+          "name": "bots/cormini/persona/memory.ts",
+          "sha256": "9d8954e6c239af14b2ca76b8c19081876e799fc33cbadfb31b9b0e4d5f603d32"
+        },
+        {
+          "name": "bots/cormini/persona/handoffNote.ts",
+          "sha256": "a8f4c9739b27f91fd7a4b6b8ec30739234bbe5f5f465e34e49acc9d383a90ac6"
+        },
+        {
+          "name": "src/core/loop.ts",
+          "sha256": "e14f725de50ac660bfa403797f61bf7bd43e47e8ca122797b6e6a556452fe730"
+        },
+        {
+          "name": "src/core/session.ts",
+          "sha256": "3a019872d6e66c3a7b3e802cc4ddeab1598be9af689291baf9d87080b4dd3a65"
+        },
+        {
+          "name": "src/protocol/open-responses/context.ts",
+          "sha256": "20922e3643c3f6312d440efd0ca28f06dbbfefc1b5068920c79ccb564fe62e9d"
+        },
+        {
+          "name": "src/core/util.ts",
+          "sha256": "2d03813cff15787a744a678f985e405da12522ed5c31eb80a457e13ed522729e"
+        }
+      ]
+    },
+    "fingerprint": "315fde81349f372a9504ec75285bf7adc14d68ded290d95d5c9fa4172557f4fb",
+    "inventoryAvailable": false,
+    "dataScope": "仅本机合成测试，无模型请求。",
+    "isolation": {
+      "dedicatedStorage": true,
+      "formalSessionAccess": false,
+      "externalTools": false
+    },
+    "memoryTargets": [
+      {
+        "id": "coo-native",
+        "name": "COO 原生工作区记忆",
+        "version": "9cfafd85f655",
+        "testLevel": "storage-api",
+        "scope": "独立工作区内的存储接口生命周期；不证明模型自主检索。"
+      }
+    ]
+  },
+  "run": {
+    "id": "f49b4a06-5446-43e8-a098-c3ca9c9ac5de",
+    "method": "DC-0.2",
+    "mode": "mechanism",
+    "groups": [
+      "handoff",
+      "memory"
+    ],
+    "limits": {
+      "maxRequests": 12,
+      "maxInputTokens": 600000,
+      "maxOutputTokens": 4096
+    },
+    "totals": {
+      "requests": 0,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "fingerprint": "315fde81349f372a9504ec75285bf7adc14d68ded290d95d5c9fa4172557f4fb",
+    "runtime": {
+      "stageTokens": 256000,
+      "softRatio": 0.85,
+      "keepRatio": 0.25,
+      "origin": "example-policy",
+      "softTokens": 217600,
+      "noteBudgetTokens": 64000,
+      "model": "未接入模型执行器",
+      "modelInputLimit": null,
+      "maxOutputTokens": null
+    },
+    "source": {
+      "id": "coo-cormini-source",
+      "name": "COO 原生 Cormini / MainLoop",
+      "fingerprint": "9cfafd85f65523f0ac85dc21c3a1c90df0cfe96f1d3363617f5cb19929bd24b2",
+      "files": [
+        {
+          "name": "bots/cormini/persona/persona.ts",
+          "sha256": "0c061f94a93ee97e7b7e079a3d8a2d4489c97a96e8cc6db378504556d5f9cad4"
+        },
+        {
+          "name": "bots/cormini/persona/memory.ts",
+          "sha256": "9d8954e6c239af14b2ca76b8c19081876e799fc33cbadfb31b9b0e4d5f603d32"
+        },
+        {
+          "name": "bots/cormini/persona/handoffNote.ts",
+          "sha256": "a8f4c9739b27f91fd7a4b6b8ec30739234bbe5f5f465e34e49acc9d383a90ac6"
+        },
+        {
+          "name": "src/core/loop.ts",
+          "sha256": "e14f725de50ac660bfa403797f61bf7bd43e47e8ca122797b6e6a556452fe730"
+        },
+        {
+          "name": "src/core/session.ts",
+          "sha256": "3a019872d6e66c3a7b3e802cc4ddeab1598be9af689291baf9d87080b4dd3a65"
+        },
+        {
+          "name": "src/protocol/open-responses/context.ts",
+          "sha256": "20922e3643c3f6312d440efd0ca28f06dbbfefc1b5068920c79ccb564fe62e9d"
+        },
+        {
+          "name": "src/core/util.ts",
+          "sha256": "2d03813cff15787a744a678f985e405da12522ed5c31eb80a457e13ed522729e"
+        }
+      ]
+    },
+    "expiresAt": 1795685494527,
+    "disclosureHash": "505d757df66a686de150829da48bbabacb0fb84b0903e595ad63709e74c8c423",
+    "durationMs": null,
+    "modelTested": false,
+    "contextSkipped": false,
+    "items": [
+      {
+        "id": "handoff-begin",
+        "group": "handoff"
+      },
+      {
+        "id": "handoff-middle",
+        "group": "handoff"
+      },
+      {
+        "id": "handoff-end",
+        "group": "handoff"
+      },
+      {
+        "id": "memory-coo-native",
+        "group": "memory",
+        "target": {
+          "id": "coo-native",
+          "name": "COO 原生工作区记忆",
+          "version": "9cfafd85f655",
+          "testLevel": "storage-api",
+          "scope": "独立工作区内的存储接口生命周期；不证明模型自主检索。"
+        }
+      }
+    ],
+    "dataScope": "仅本机合成测试，无模型请求。",
+    "state": "completed",
+    "reason": null,
+    "startedAt": 1795685194527,
+    "current": null,
+    "results": [
+      {
+        "id": "handoff-begin",
+        "group": "handoff",
+        "outcome": "pass",
+        "evidence": {
+          "route": "MainLoop.handoffContext → Cormini.onHandoff → SessionLog.reset",
+          "sourceFingerprint": "9cfafd85f65523f0ac85dc21c3a1c90df0cfe96f1d3363617f5cb19929bd24b2",
+          "resetObserved": true,
+          "boundaryObserved": true,
+          "injectionCount": 2,
+          "facts": {
+            "goal": true,
+            "constraint": true,
+            "pending": true,
+            "latest": true
+          },
+          "warningCount": 0,
+          "trigger": "explicit-test-handoff",
+          "automaticThresholdTested": false,
+          "beforeCount": 18,
+          "afterCount": 3,
+          "counting": "COO 原生估算，仅用于机制观察，不是模型服务计量。"
+        },
+        "explanation": "真实 Core 交接事务完成，重置后注入材料保留了本题四项合成任务信息。"
+      },
+      {
+        "id": "handoff-middle",
+        "group": "handoff",
+        "outcome": "pass",
+        "evidence": {
+          "route": "MainLoop.handoffContext → Cormini.onHandoff → SessionLog.reset",
+          "sourceFingerprint": "9cfafd85f65523f0ac85dc21c3a1c90df0cfe96f1d3363617f5cb19929bd24b2",
+          "resetObserved": true,
+          "boundaryObserved": true,
+          "injectionCount": 2,
+          "facts": {
+            "goal": true,
+            "constraint": true,
+            "pending": true,
+            "latest": true
+          },
+          "warningCount": 0,
+          "trigger": "explicit-test-handoff",
+          "automaticThresholdTested": false,
+          "beforeCount": 18,
+          "afterCount": 3,
+          "counting": "COO 原生估算，仅用于机制观察，不是模型服务计量。"
+        },
+        "explanation": "真实 Core 交接事务完成，重置后注入材料保留了本题四项合成任务信息。"
+      },
+      {
+        "id": "handoff-end",
+        "group": "handoff",
+        "outcome": "pass",
+        "evidence": {
+          "route": "MainLoop.handoffContext → Cormini.onHandoff → SessionLog.reset",
+          "sourceFingerprint": "9cfafd85f65523f0ac85dc21c3a1c90df0cfe96f1d3363617f5cb19929bd24b2",
+          "resetObserved": true,
+          "boundaryObserved": true,
+          "injectionCount": 2,
+          "facts": {
+            "goal": true,
+            "constraint": true,
+            "pending": true,
+            "latest": true
+          },
+          "warningCount": 0,
+          "trigger": "explicit-test-handoff",
+          "automaticThresholdTested": false,
+          "beforeCount": 18,
+          "afterCount": 3,
+          "counting": "COO 原生估算，仅用于机制观察，不是模型服务计量。"
+        },
+        "explanation": "真实 Core 交接事务完成，重置后注入材料保留了本题四项合成任务信息。"
+      },
+      {
+        "id": "memory-coo-native",
+        "group": "memory",
+        "target": {
+          "id": "coo-native",
+          "name": "COO 原生工作区记忆",
+          "version": "9cfafd85f655",
+          "testLevel": "storage-api",
+          "scope": "独立工作区内的存储接口生命周期；不证明模型自主检索。"
+        },
+        "outcome": "pass",
+        "evidence": {
+          "target": "coo-native",
+          "route": "Cormini.memory / GitWorkspaceMemory",
+          "steps": [
+            {
+              "id": "negative-control",
+              "pass": true
+            },
+            {
+              "id": "write-read",
+              "pass": true
+            },
+            {
+              "id": "reopen-read",
+              "pass": true
+            },
+            {
+              "id": "update-read",
+              "pass": true
+            },
+            {
+              "id": "delete-read",
+              "pass": true
+            }
+          ],
+          "cleanupVerified": true,
+          "testLevel": "storage-api",
+          "autonomousModelRetrievalTested": false
+        },
+        "explanation": "此隔离存储接口的阴性对照、写入、重开读取、更正和删除检查通过；未验证模型自主检索。"
+      }
+    ],
+    "cleanup": {
+      "status": "verified",
+      "adapterReceipts": {},
+      "scope": "本次独立本地测试目录及适配器本次命名空间的清理回执；不代表远端副本已全局删除。"
+    },
+    "usage": {
+      "requests": 0,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "unsettled": null,
+    "finishedAt": 1795685194710
+  },
+  "inventory": {
+    "status": "not-read",
+    "rows": []
+  },
+  "storageError": false
+}

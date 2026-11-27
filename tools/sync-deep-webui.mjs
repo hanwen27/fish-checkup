@@ -1,0 +1,11 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+const root = new URL('../', import.meta.url);
+const path = fileURLToPath(new URL('dist/webui.js', root));
+const before = readFileSync(path, 'utf8');
+const startMarker = '/* DEEP_UI_START */', endMarker = '/* DEEP_UI_END */';
+const start = before.includes(startMarker) ? before.indexOf(startMarker) : before.indexOf('function makeDeepCheckupPanel()');
+const end = before.includes(endMarker) ? before.indexOf(endMarker) + endMarker.length : Math.min(...['/* PASSIVE_UI_START */', '/* GROUPED_UI_START */', '\nexport default {'].map(marker => before.indexOf(marker, start)).filter(index => index >= 0));
+if (start < 0 || end < 0) throw Error('Cannot locate the existing deep panel');
+const source = readFileSync(new URL('src/deep-webui.mjs', root), 'utf8');
+writeFileSync(path, before.slice(0, start).trimEnd() + '\n\n' + startMarker + '\n' + source.replace('export function', 'function').trim() + '\n' + endMarker + '\n\n' + before.slice(end).trimStart());

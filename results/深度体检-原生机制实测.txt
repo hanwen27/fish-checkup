@@ -1,0 +1,18 @@
+COO 协作深度体检 DC-0.2
+运行 f49b4a06-5446-43e8-a098-c3ca9c9ac5de；状态 completed；原因 无
+模式：本地机制验证（未测试模型回答）
+策略来源：example-policy；阶段预算 256000；软线 217600；交接笔记预算 64000
+源码指纹：9cfafd85f65523f0ac85dc21c3a1c90df0cfe96f1d3363617f5cb19929bd24b2
+结果速读：
+handoff-begin：pass；真实 Core 交接事务完成，重置后注入材料保留了本题四项合成任务信息。
+证据：{"route":"MainLoop.handoffContext → Cormini.onHandoff → SessionLog.reset","sourceFingerprint":"9cfafd85f65523f0ac85dc21c3a1c90df0cfe96f1d3363617f5cb19929bd24b2","resetObserved":true,"boundaryObserved":true,"injectionCount":2,"facts":{"goal":true,"constraint":true,"pending":true,"latest":true},"warningCount":0,"trigger":"explicit-test-handoff","automaticThresholdTested":false,"beforeCount":18,"afterCount":3,"counting":"COO 原生估算，仅用于机制观察，不是模型服务计量。"}
+handoff-middle：pass；真实 Core 交接事务完成，重置后注入材料保留了本题四项合成任务信息。
+证据：{"route":"MainLoop.handoffContext → Cormini.onHandoff → SessionLog.reset","sourceFingerprint":"9cfafd85f65523f0ac85dc21c3a1c90df0cfe96f1d3363617f5cb19929bd24b2","resetObserved":true,"boundaryObserved":true,"injectionCount":2,"facts":{"goal":true,"constraint":true,"pending":true,"latest":true},"warningCount":0,"trigger":"explicit-test-handoff","automaticThresholdTested":false,"beforeCount":18,"afterCount":3,"counting":"COO 原生估算，仅用于机制观察，不是模型服务计量。"}
+handoff-end：pass；真实 Core 交接事务完成，重置后注入材料保留了本题四项合成任务信息。
+证据：{"route":"MainLoop.handoffContext → Cormini.onHandoff → SessionLog.reset","sourceFingerprint":"9cfafd85f65523f0ac85dc21c3a1c90df0cfe96f1d3363617f5cb19929bd24b2","resetObserved":true,"boundaryObserved":true,"injectionCount":2,"facts":{"goal":true,"constraint":true,"pending":true,"latest":true},"warningCount":0,"trigger":"explicit-test-handoff","automaticThresholdTested":false,"beforeCount":18,"afterCount":3,"counting":"COO 原生估算，仅用于机制观察，不是模型服务计量。"}
+memory-coo-native：pass；此隔离存储接口的阴性对照、写入、重开读取、更正和删除检查通过；未验证模型自主检索。
+证据：{"target":"coo-native","route":"Cormini.memory / GitWorkspaceMemory","steps":[{"id":"negative-control","pass":true},{"id":"write-read","pass":true},{"id":"reopen-read","pass":true},{"id":"update-read","pass":true},{"id":"delete-read","pass":true}],"cleanupVerified":true,"testLevel":"storage-api","autonomousModelRetrievalTested":false}
+消耗：请求 0；已回报输入 0 / 输出 0 Token；当前无未回报请求
+清理：verified；本次独立本地测试目录及适配器本次命名空间的清理回执；不代表远端副本已全局删除。
+未覆盖：当前主会话、正式记忆、真实私人数据、模型自主选择记忆工具、软阈值自动触发、外部动作。
+结果仅描述本次隔离实例、代码和策略，不生成总分，不据此建议最佳上下文长度。原始提示、回答和合成事实不保存在报告中。

@@ -130,7 +130,7 @@ export function reportToText(report, { language = report.language, mode = 'detai
       lines.push([sum.simple.overall, sum.simple.priority, sum.simple.scope].filter(Boolean).join(' '));
       lines.push(sum.simple.next);
     }
-    lines.push(zh ? `【硬件健康】${report.hardware.overall ?? '—'} ${report.hardware.level}` : `[Hardware] ${report.hardware.overall ?? '—'} ${report.hardware.level}`);
+    lines.push(zh ? `【运行健康】${report.hardware.overall ?? '—'} ${report.hardware.level}` : `[Operational health] ${report.hardware.overall ?? '—'} ${report.hardware.level}`);
     for (const d of dimensions) {
       const trend = Number.isFinite(d.delta) && Math.round(Math.abs(d.delta)) >= 5
         ? `（${d.delta > 0 ? '+' : ''}${Math.round(d.delta)}）`
@@ -233,6 +233,10 @@ function briefText(report, { language = report.language } = {}) {
     lines.push([overall, priority || scope].filter(Boolean).join(' '));
     if (priority && scope) lines.push(scope);
     lines.push(next);
+    const stability = dimensions.find(({ id }) => id === 'stability');
+    if (Number.isFinite(stability?.score)) lines.push(zh
+      ? '稳定性只统计模型请求结果；这份报告没有核实失败根因，不能单凭分数归因于机器、网络或服务端。'
+      : 'Stability reflects model-request outcomes only. This report does not verify root causes or attribute failures to the machine, network, or service.');
   }
   const profile = report.personality?.profile;
   if (profile) {

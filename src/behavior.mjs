@@ -2,7 +2,7 @@
  * 行为侧写：不用她开口，只从真实痕迹里读四根轴。
  *
  * 四轴与自评完全同一套，便于逐轴对比：
- *   E/I  主动性：会不会先开口、一次说多少
+ *   E/I  主动性：判断时选择非静默回应的比例，以及记录的消息长度
  *   S/N  关注面：说的是具体事还是拉得开
  *   T/F  情绪外露：情绪起伏大不大、判断偏理还是偏感
  *   J/P  章法：作息与话题是否有秩序
@@ -23,32 +23,43 @@ function scale01(x) {
 
 /**
  * E/I：说话倾向。
- * 代理指标：decisions 里真正开口的比例（speakRate） + 一次说多长（medianLen 归一化）。
- * 开口多且话长 → E；基本不出声、话短 → I。
+ * 代理指标：未被系统拦截的判断里，非静默决定比例（speakRate）和记录长度。
+ * 这是接话倾向的代理值，不代表每条消息都已成功发出。
  */
 export function axisEI(memory) {
   const d = memory?.decisions;
   if (!d || d.total < MIN_DECISIONS) {
-    return { axis: 'EI', score: null, note: `判断样本只有 ${d?.total ?? 0} 次，不够。`, evidence: [] };
+    const effective = d?.total ?? 0;
+    return {
+      axis: 'EI', score: null,
+      note: `有效判断样本只有 ${effective} 次，不够。`,
+      evidence: [
+        { label: '有效判断', value: String(effective) },
+        { label: '全部判断', value: String(d?.judgedTotal ?? effective) },
+        { label: '系统拦截', value: String(d?.blockedCount ?? 0), hint: '不作为性格依据' },
+      ],
+    };
   }
   const speak = Number.isFinite(d.speakRate) ? d.speakRate : null;
   const len = Number.isFinite(d.medianLen) ? d.medianLen : null;
   if (speak === null || len === null) {
-    return { axis: 'EI', score: null, note: '缺少开口率或长度数据。', evidence: [] };
+    return { axis: 'EI', score: null, note: '缺少接话判断比例或长度数据。', evidence: [] };
   }
-  // 开口率 0..0.8 → 0..100；长度 0..80 字 → 0..100；各占一半。
+  // 非静默判断比例 0..0.8 → 0..100；记录长度 0..80 字 → 0..100；各占一半。
   const sSpeak = Math.max(0, Math.min(1, speak / 0.8));
   const sLen = Math.max(0, Math.min(1, len / 80));
   const score = (sSpeak * 0.6 + sLen * 0.4) * 100;
   return {
     axis: 'EI',
     score: r1(score),
-    note: `开口率 ${Math.round(speak * 100)}%，中位长度 ${r1(len)} 字。`,
+    note: `非静默判断占比 ${Math.round(speak * 100)}%，记录长度中位数 ${r1(len)} 字。`,
     evidence: [
-      { label: '判断次数', value: String(d.total) },
-      { label: '真正开口', value: `${Math.round(speak * 100)}%` },
-      { label: '中位长度', value: `${r1(len)} 字` },
-      { label: '被点名比例', value: Number.isFinite(d.addressedRate) ? `${Math.round(d.addressedRate * 100)}%` : '—' },
+      { label: '有效判断', value: String(d.total) },
+      { label: '全部判断', value: String(d.judgedTotal ?? d.total) },
+      { label: '系统拦截', value: String(d.blockedCount ?? 0), hint: '已从性格判断样本中排除' },
+      { label: '非静默判断占比', value: `${Math.round(speak * 100)}%`, hint: '未核验每条消息是否成功发出' },
+      { label: '记录长度中位数', value: `${r1(len)} 字` },
+      { label: '群聊判断被点名比例', value: Number.isFinite(d.addressedRate) ? `${Math.round(d.addressedRate * 100)}%` : '—' },
     ],
   };
 }

@@ -1,0 +1,24 @@
+
+/* 1.0.9 local operational diagnostics */
+.sc-pass-root { max-width: 1200px; margin: 0 auto; }
+.sc-pass-head,.sc-pass-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.sc-pass-head { margin-bottom:18px; }
+.sc-pass-head h2 { margin:0 0 6px; font-size:23px; }
+.sc-pass-head p,.sc-pass-muted { color:var(--text-muted,var(--text-2,#999)); font-size:12px; line-height:1.7; }
+.sc-pass-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:16px 0; }
+.sc-pass-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.sc-pass-columns .sc-deep-card { min-width:0; }
+.sc-pass-table-wrap { overflow-x:auto; max-width:100%; }
+.sc-pass-table { width:100%; border-collapse:collapse; font-size:12px; line-height:1.6; }
+.sc-pass-table th { text-align:left; color:var(--text-muted,var(--text-2,#999)); font-weight:500; }
+.sc-pass-table td,.sc-pass-table th { padding:10px 12px; vertical-align:top; border-bottom:1px solid var(--line-1,#333); min-width:75px; overflow-wrap:anywhere; white-space:pre-line; }
+.sc-pass-table td:first-child { min-width:110px; }
+.sc-pass-notes { padding-left:20px; font-size:12px; line-height:1.8; }
+.sc-pass-bar-row { display:grid; grid-template-columns:78px minmax(25px,1fr) 112px; gap:9px; align-items:center; font-size:11px; margin:12px 0; }
+.sc-pass-bar-row>span:last-child { text-align:right; color:var(--text-muted,var(--text-2,#aaa)); }
+.sc-pass-track { height:8px; background:var(--fill-2,#333); border-radius:5px; overflow:hidden; }
+.sc-pass-fill { background:var(--accent,#74bdac); height:100%; border-radius:5px; }
+.sc-pass-root .sc-deep-card { margin-top:16px; }
+.sc-pass-root summary { cursor:pointer; font-size:13px; font-weight:600; }
+@media(max-width:760px) { .sc-pass-columns{grid-template-columns:1fr;} .sc-pass-grid{grid-template-columns:repeat(2,minmax(0,1fr));} }
+@media(max-width:420px) { .sc-pass-grid{grid-template-columns:1fr;} .sc-pass-bar-row{grid-template-columns:72px minmax(20px,1fr) 96px;gap:6px;} }

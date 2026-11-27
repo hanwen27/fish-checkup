@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { collectAll, readMemory, readUsage } from '../src/collect.mjs';
 import { cacheHealth, latency, stability } from '../src/hardware.mjs';
+import { axisEI, axisSN, axisTF } from '../src/behavior.mjs';
+import { buildProfile } from '../src/profile.mjs';
+import { collectTags, deriveStats } from '../src/tags.mjs';
 import { sampleRecentActivity } from '../src/recent-fish.mjs';
+import { reportToText } from '../src/report.mjs';
 
 const now = new Date('2026-11-25T12:00:00Z');
 const timestamp = '2026-11-25T11:00:00Z';
@@ -88,3 +92,80 @@ test('Old handoffs stay outside the period while old-mtime logs retain current e
   assert.equal(snapshot.handoffs.files.length, 0);
   assert.equal(snapshot.activity.messages, 1);
 }));
+
+test('System-blocked decisions are excluded from speech traits and reported separately', () => withData((dir) => {
+  const memoryDir = join(dir, 'memory');
+  mkdirSync(memoryDir);
+  const eligible = Array.from({ length: 60 }, (_, i) => ({
+    at: timestamp, act: i < 30 ? 'answer' : 'silent', len: 24, conf: 0.8,
+    chat: i < 30 ? 'group:sample' : 'dm:sample', addressed: i < 10 || i >= 30,
+  }));
+  const blocked = Array.from({ length: 40 }, () => ({
+    at: timestamp, act: 'silent', len: 24, blocks: ['qq-topic-auto-close'],
+  }));
+  const future = Array.from({ length: 20 }, () => ({
+    at: '2026-12-25T11:00:00Z', act: 'answer', len: 32,
+  }));
+  writeFileSync(join(memoryDir, 'decisions.jsonl'), [...eligible, ...blocked, ...future].map(JSON.stringify).join('\n'));
+
+  const memory = readMemory(dir, { now });
+  assert.equal(memory.decisions.total, 60);
+  assert.equal(memory.decisions.judgedTotal, 100);
+  assert.equal(memory.decisions.blockedCount, 40);
+  assert.equal(memory.decisions.speakRate, 0.5);
+  assert.equal(memory.decisions.groupDecisionCount, 30);
+  assert.equal(memory.decisions.addressedRate, 1 / 3);
+  assert.equal(axisEI(memory).score > 0, true);
+  assert.equal(memory.profileDecisions.all.total, 60);
+  assert.equal(memory.profileDecisions.blocked.total, 40);
+  const speech = buildProfile(memory, 'zh').evidence.find(({ id }) => id === 'speech');
+  assert.ok(speech.lines.some((line) => line.includes('系统拦截')));
+}));
+
+test('Missing emotion annotations stay unknown instead of producing zero-percent personality tags', () => withData((dir) => {
+  const memoryDir = join(dir, 'memory');
+  mkdirSync(memoryDir);
+  const entries = Array.from({ length: 60 }, () => ({ t: timestamp, text: 'A dated memory without emotion labels', tags: [] }));
+  writeFileSync(join(memoryDir, 'entries.jsonl'), entries.map(JSON.stringify).join('\n'));
+
+  const memory = readMemory(dir, { now });
+  assert.equal(memory.entries.valenceNonZeroRatio, null);
+  assert.equal(memory.entries.tagDiversity, null);
+  assert.equal(axisSN(memory).score, null);
+  assert.equal(axisTF(memory).score, null);
+  const stats = deriveStats({ memory });
+  const ids = collectTags(stats).tags.map(({ id }) => id);
+  assert.ok(!ids.includes('cold-log'));
+}));
+
+test('Personality stability tags share the model-call filter and ignore platform blocks', () => {
+  const actual = Array.from({ length: 60 }, (_, i) => ({
+    outcome: i < 24 ? 'failed' : 'completed', role: 'main', purpose: 'chat',
+  }));
+  const diagnostics = Array.from({ length: 120 }, () => ({
+    outcome: 'failed', role: 'main', purpose: 'diagnostic',
+  }));
+  const stats = deriveStats({
+    usage: { records: [...actual, ...diagnostics] },
+    memory: { decisions: { blockedRate: 0.93 } },
+  });
+  assert.equal(stats.failRate, 0.4);
+  const diagnosticOnly = deriveStats({ usage: { records: diagnostics } });
+  assert.equal(diagnosticOnly.failRate, null);
+  const ids = collectTags({ ...stats, blockedRate: 0.93 }).tags.map(({ id }) => id);
+  assert.ok(!ids.includes('silent-blocked'));
+  const diagnosticIds = collectTags(diagnosticOnly).tags.map(({ id }) => id);
+  assert.ok(!diagnosticIds.includes('rough-patch'));
+  assert.ok(!diagnosticIds.includes('bad-patch'));
+});
+
+test('Brief reports do not assign a root cause to model-request failures', () => {
+  const report = {
+    language: 'zh',
+    hardware: { dimensions: [{ id: 'stability', score: 64 }] },
+    summary: { simple: { overall: '有几处可以更好', priority: '稳定性需要留意', next: '看看近期请求记录。' } },
+    personality: {},
+  };
+  const brief = reportToText(report, { mode: 'brief' });
+  assert.match(brief, /没有核实失败根因/);
+});

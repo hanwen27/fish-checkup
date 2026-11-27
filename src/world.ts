@@ -4,10 +4,11 @@
  * 两块分开算，永不合并：
  *   · 硬件健康：六维评分，纯本地统计，零模型。
  *   · 人格测试：她自己答题出四字母，再用真实行为痕迹交叉验证。
+ *   · 深度体检：独立确认与预算；缺少隔离执行器时拒绝启动。
  *
  * 边界：
  *   · 只读。除 dataDir/self-checkup/ 之外不写任何路径。
- *   · 本地汇总；仅借宿主可选的 Persona 认知接口润色画像，不直连服务或读取凭据。
+ *   · 本地汇总；Persona 认知接口只用于画像，深测仅允许显式注入的隔离执行器。
  */
 import type { Language } from 'cortico/core/language.ts';
 import type {
@@ -26,6 +27,11 @@ import { pick } from './text.mjs';
 import { readProfileCopy } from './profile.mjs';
 import { compareProfileSignals, collectProfileSignals } from './profile-updates.mjs';
 import { cardPrompt } from './card-profile.mjs';
+import { DeepCheckup, deepReportText } from './deep-checkup.mjs';
+import type { DeepExecutor } from './deep-executor.ts';
+import { CooperativeCheckup } from './cooperative-checkup.mjs';
+import type { CooperativeHost } from './cooperative-host.ts';
+import { collectPassiveDiagnostics, passiveReportText } from './passive-diagnostics.mjs';
 
 export const CHECKUP_ID = 'self-checkup';
 
@@ -70,6 +76,10 @@ export class CheckupWorld implements World {
   private cache: { snapshot: Snapshot | null; at: number; key: string } = { snapshot: null, at: 0, key: '' };
   private quiz: QuizState = {};
   private creativePending = false;
+  private readonly deep: DeepCheckup;
+  private readonly cooperative: CooperativeCheckup;
+  private passiveCache: { at: number; report: ReturnType<typeof collectPassiveDiagnostics> } | null = null;
+  private passiveInventoryState: unknown = null;
   private readonly live = {
     phases: 0,
     backoffs: 0,
@@ -90,6 +100,10 @@ export class CheckupWorld implements World {
     timezone?: string;
     /** 覆盖状态目录，仅供测试/冒烟用；正常装配不传，落 dataDir/self-checkup。 */
     stateDirOverride?: string;
+    /** Explicit opt-in by a host integration; ordinary cognition is never used. */
+    deepExecutor?: DeepExecutor;
+    /** Explicit COO host adapter; no adapter means this layer stays unavailable. */
+    cooperativeHost?: CooperativeHost;
   }) {
     this.cfg = opts.cfg;
     this.botDir = opts.botDir;
@@ -99,12 +113,20 @@ export class CheckupWorld implements World {
     this.packageDir = opts.packageDir;
     this.timezone = opts.timezone;
     this.stateDirOverride = opts.stateDirOverride ?? null;
+    this.deep = new DeepCheckup({
+      executor: opts.deepExecutor,
+      model: () => this.modelName(),
+      contextWindow: () => this.contextWindow(),
+      stateDir: this.stateDir(),
+    });
+    this.cooperative = new CooperativeCheckup({ host: opts.cooperativeHost, stateDir: this.stateDir() });
   }
 
   /* ------------------------------------------------------------- 生命周期 */
 
   async start(host: WorldHost): Promise<void> {
     this.host = host;
+    this.deep.open();
     try {
       this.botDefaults = await loadBotDefaults(this.packageDir, this.botDir);
     } catch {
@@ -116,6 +138,10 @@ export class CheckupWorld implements World {
   }
 
   async stop(): Promise<void> {
+    this.deep.close();
+    this.cooperative.close();
+    await this.deep.task;
+    await this.cooperative.task;
     this.host = null;
   }
 
@@ -342,9 +368,9 @@ export class CheckupWorld implements World {
       panels: [
         {
           id: 'hardware',
-          title: lang === 'zh' ? '硬件健康' : 'Hardware',
-          description: lang === 'zh' ? '六个维度的运行状态与依据' : 'Six operational dimensions with evidence',
-          getMethods: ['report'],
+          title: lang === 'zh' ? '运行健康' : 'Operational health',
+          description: lang === 'zh' ? '总览、Token 消耗、记忆状态与上下文适配' : 'Overview, token usage, memory status and context fit',
+          getMethods: ['report', 'passiveReport', 'passiveText', 'methodReport', 'methodText'],
         },
         {
           id: 'persona',
@@ -352,12 +378,15 @@ export class CheckupWorld implements World {
           description: lang === 'zh'
             ? '查看她近期的性格画像、行为依据和奇遇小测'
             : 'Recent personality observations, evidence and a curiosity quiz',
-          getMethods: ['report'],
+          getMethods: ['report', 'methodReport', 'methodText'],
         },
         {
-          id: 'method',
-          title: lang === 'zh' ? '口径' : 'Method',
-          description: lang === 'zh' ? '每个分数怎么来的，以及它不做什么' : 'How each number is produced, and what it does not do',
+          id: 'deep-checkup',
+          title: lang === 'zh' ? '深度体检' : 'Deep checkup',
+          description: lang === 'zh'
+            ? '在明确预算与数据边界后，主动抽样检查当前模型和配置'
+            : 'Actively sample the current model and setup within a disclosed budget',
+          getMethods: ['deepStatus', 'deepText', 'cooperativeStatus', 'cooperativeText', 'methodReport', 'methodText'],
         },
       ],
       invoke: (panel: string, method: string, args: unknown[]) => this.invoke(panel, method, args),
@@ -391,6 +420,43 @@ export class CheckupWorld implements World {
   }
 
   async invoke(panel: string, method: string, args: unknown[]): Promise<unknown> {
+    if (['hardware', 'persona', 'deep-checkup'].includes(panel) && ['methodReport', 'methodText', 'methodRefresh'].includes(method)) {
+      return this.invoke('method', ({ methodReport: 'report', methodText: 'text', methodRefresh: 'refresh' } as Record<string, string>)[method], args);
+    }
+    if ((panel === 'hardware' && ['passiveReport', 'passiveText', 'passiveInventory'].includes(method)) || ['tokens', 'memory-coverage', 'context-fit'].includes(panel)) {
+      if (method === 'passiveReport') return { ok: true, report: this.passiveReport(args?.[0] === true) };
+      if (method === 'passiveText') return { ok: true, text: passiveReportText(this.passiveReport()) };
+      if (method === 'passiveInventory') {
+        const result = await this.cooperative.readInventory();
+        this.passiveInventoryState = result.ok ? result.inventory : { status: result.error === 'inventory-unavailable' ? 'unavailable' : 'read-failed', rows: [] };
+        this.passiveCache = null;
+        return { ok: result.ok, error: result.error };
+      }
+      return { ok: false, error: 'unknown-passive-method' };
+    }
+    if (panel === 'deep-checkup') {
+      if (method === 'deepStatus') return this.deep.status();
+      if (method === 'deepPreflight') return this.deep.preflight(args?.[0] ?? {});
+      if (method === 'deepStart') {
+        if (['running', 'stopping'].includes(this.cooperative.status().run?.state ?? '')) return { ok: false, error: 'already-running' };
+        return this.deep.start(args?.[0] ?? {});
+      }
+      if (method === 'deepStop') return this.deep.stop();
+      if (method === 'deepText') return { ok: true, text: deepReportText(this.deep.run) };
+      if (method === 'cooperativeStatus') return this.cooperative.status();
+      if (method === 'cooperativeInventory') return this.cooperative.readInventory();
+      if (method === 'cooperativePreflight') {
+        if (['running', 'stopping'].includes(this.deep.status().run?.state ?? '')) return { ok: true, ready: false, error: 'already-running', plan: null };
+        return this.cooperative.preflight(args?.[0] ?? {});
+      }
+      if (method === 'cooperativeStart') {
+        if (['running', 'stopping'].includes(this.deep.status().run?.state ?? '')) return { ok: false, error: 'already-running' };
+        return this.cooperative.start(args?.[0] ?? {});
+      }
+      if (method === 'cooperativeStop') return this.cooperative.stop();
+      if (method === 'cooperativeText') return this.cooperative.text();
+      return { ok: false, error: 'unknown-deep-method' };
+    }
     if (method === 'refresh') {
       this.cache = { snapshot: null, at: 0, key: '' };
       return { ok: true };
@@ -541,6 +607,17 @@ export class CheckupWorld implements World {
     return { ...report, personality: { ...report.personality, profile: { ...profile, ...followup } } };
   }
 
+  private passiveReport(force = false) {
+    const now = Date.now();
+    if (!force && this.passiveCache && now - this.passiveCache.at < CACHE_TTL_MS) return this.passiveCache.report;
+    if (force) this.cache = { snapshot: null, at: 0, key: '' };
+    const report = collectPassiveDiagnostics({ dataDir: this.dataDir, snapshot: this.safeSnapshot(),
+      contextWindow: this.contextWindow(), inventory: this.passiveInventoryState ?? this.cooperative.status().inventory,
+      timezone: this.timezone, now, sampleDays: this.sampleDays() });
+    this.passiveCache = { at: now, report };
+    return report;
+  }
+
   private safeSnapshot(): Snapshot {
     try {
       return this.snapshot();
@@ -575,5 +652,19 @@ export const CHECKUP_WORLD: WorldDefinition<CheckupSection> = {
     memoryDir: join(ctx.botDir, 'workspace'),
   }),
 };
+
+/** Assembly opt-in: the host supplies a bridge explicitly; the default stays passive. */
+export function createCooperativeCheckupDefinition(
+  hostFactory: (ctx: WorldContext<CheckupSection>) => CooperativeHost,
+): WorldDefinition<CheckupSection> {
+  return {
+    ...CHECKUP_WORLD,
+    create: (ctx) => new CheckupWorld({
+      cfg: ctx.cfg, botDir: ctx.botDir, dataDir: ctx.dataDir, botName: ctx.botName,
+      timezone: ctx.timezone, packageDir: ctx.packageDir,
+      memoryDir: join(ctx.botDir, 'workspace'), cooperativeHost: hostFactory(ctx),
+    }),
+  };
+}
 
 export default CHECKUP_WORLD;

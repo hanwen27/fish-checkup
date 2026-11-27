@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>鱼鱼体检 1.0.9 · COO 页面联调</title><link rel="stylesheet" href="/webui.css">
+<style>
+:root{color-scheme:dark;--surface-1:#111413;--surface-2:#1b211e;--text-1:#edf3ef;--text-2:#a8b7ae;--line-1:#323e37;--accent:#71c5a5;--text-muted:#a8b7ae}*{box-sizing:border-box}body{margin:0;background:#111413;color:var(--text-1);font:14px/1.6 "Microsoft YaHei",sans-serif}.titlebar{height:42px;background:#181e1b;padding:9px 22px;border-bottom:1px solid var(--line-1);font-size:12px;color:#a0b0a7}.shell{display:grid;grid-template-columns:236px minmax(0,1fr);min-height:calc(100vh - 42px)}aside{background:#171d19;padding:28px 18px;border-right:1px solid var(--line-1)}.brand{font-size:27px;font-weight:700;margin:0 15px 25px}.brand b{color:var(--accent)}.item{padding:13px 16px;color:#9fafA5}.current{margin-top:14px;border:1px solid #385746;background:#20382b;border-radius:8px;color:#deeee5}main{min-width:0;padding:30px 34px;max-width:1500px;width:100%;margin:auto}h1{font-size:24px;margin:0}.banner{margin:12px 0;color:#d4c39b;font-size:12px}.tabs{display:flex;gap:8px;flex-wrap:wrap;border-block:1px solid var(--line-1);padding:12px 0;margin:16px 0 24px}.tabs button{font:inherit;border:0;background:transparent;color:#abb9b0;padding:8px 14px;cursor:pointer;border-radius:6px}.tabs button[aria-selected=true]{background:#20382b;color:#c1e5d1}#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#284434;border:1px solid #527c60;padding:12px 20px;border-radius:8px;max-width:90%;z-index:10}#toast:empty{display:none}@media(max-width:760px){.shell{display:block}aside{display:none}main{padding:22px 14px}.tabs{gap:3px}.tabs button{font-size:12px;padding:8px 9px}}
+</style></head><body><div class="titlebar">‹　 ›　 ◫　 COO · 扩展面板预览</div><div class="shell"><aside><div class="brand">C<b>oo</b>panion</div><div class="item">▷　开始</div><div class="item">♧　习惯</div><div class="item">◈　装扮</div><div class="item">▦　扩展</div><div class="item current">鱼鱼体检</div></aside><main><h1>鱼鱼体检 <small style="font-size:12px;color:#9eafa4">1.0.9</small></h1><div class="banner">联调预览 · 全部用量、插件清单与配置为合成示例；真实插件面板代码，无模型调用。页面外壳仅模拟 COO。</div><nav class="tabs" aria-label="体检页面"><button data-panel="tokens">Token 消耗</button><button data-panel="memory-coverage">记忆覆盖</button><button data-panel="context-fit">上下文适配</button><button data-panel="deep-checkup">深度体检</button></nav><div id="panel"></div></main></div><div id="toast" role="status"></div>
+<script type="module">
+import ui from '/webui.js';
+const { panels } = ui;
+const info = await (await fetch('/preview-info')).json();
+let controller;
+window.previewErrors = [];
+window.addEventListener('error', e => window.previewErrors.push(e.message));
+async function select(panel) {
+  controller?.abort(); controller = new AbortController(); const root = document.querySelector('#panel'); root.replaceChildren();
+  for (const b of document.querySelectorAll('[data-panel]')) b.setAttribute('aria-selected', String(b.dataset.panel === panel));
+  window.previewPanel = panel;
+  const signal = controller.signal;
+  await panels[panel].mount({ root, signal, language:'zh', theme:'dark', interval(fn,ms){const id=setInterval(fn,ms);signal.addEventListener('abort',()=>clearInterval(id),{once:true});return id;}, timeout(fn,ms){const id=setTimeout(fn,ms);signal.addEventListener('abort',()=>clearTimeout(id),{once:true});return id;}, invoke: async (method,args=[]) => { const r=await fetch(`/api/${panel}/${method}`,{method:'POST',headers:{'content-type':'application/json','x-preview-token':info.token},body:JSON.stringify(args)});if(!r.ok)throw Error('preview-api');return r.json(); }, ui:{toast(text){document.querySelector('#toast').textContent=text;setTimeout(()=>document.querySelector('#toast').textContent='',3000)}} });
+  document.body.dataset.mounted = panel;
+}
+for (const b of document.querySelectorAll('[data-panel]')) b.addEventListener('click',()=>select(b.dataset.panel));
+const params=new URLSearchParams(location.search);
+await select(params.get('panel')||'tokens');
+window.previewSelect=select;
+if(params.has('qa')) {
+  const results=[];
+  for(const p of ['tokens','memory-coverage','context-fit','deep-checkup']) {
+    await select(p);const before=document.querySelector('#panel').textContent;
+    const inventory=[...document.querySelectorAll('#panel button')].find(b=>b.textContent==='读取宿主插件清单');
+    if(inventory){inventory.click();await new Promise(r=>setTimeout(r,150));}
+    results.push({panel:p,hasText:before.length>100,overflow:document.documentElement.scrollWidth>innerWidth,unknown:/未知|未核实|不可测|未接入/.test(before),inventory:p==='memory-coverage'?document.querySelector('#panel').textContent.includes('示例记忆插件（合成）'):null});
+  }
+  await select('tokens');
+  const result=document.createElement('pre');result.id='qa-result';result.textContent=JSON.stringify({results,errors:window.previewErrors});document.body.append(result);document.body.dataset.qa='complete';
+}
+</script></body></html>

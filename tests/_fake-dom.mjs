@@ -14,12 +14,7 @@ class FakeNode {
     this.parentNode = null;
     this.attributes = {};
     this.dataset = {};
-    this.style = {
-      _vars: {},
-      setProperty(name, value) { this._vars[name] = value; },
-      getPropertyValue(name) { return this._vars[name] ?? ''; },
-      removeProperty(name) { delete this._vars[name]; },
-    };
+    this.style = { setProperty(name, value) { this[name] = value; } };
     this.listeners = {};
     this._text = '';
     this._html = '';
@@ -34,6 +29,8 @@ class FakeNode {
       contains: () => false,
     };
   }
+
+  get firstElementChild() { return this.children.find((node) => node.tagName !== '#TEXT') ?? null; }
 
   get textContent() {
     if (this.children.length === 0) return this._text;

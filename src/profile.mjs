@@ -10,12 +10,17 @@ const REASONS = new Set(['answer', 'ask', 'act', 'hold', 'silent']);
 const count = () => ({ total: 0, replies: 0, days: new Set() });
 
 export function profileDecisions() {
-  return { all: count(), addressed: count(), unaddressed: count(), day: count(), night: count() };
+  return { all: count(), addressed: count(), unaddressed: count(), day: count(), night: count(), blocked: count() };
 }
 
 export function observeDecision(stats, row, at, clock) {
   if (!REASONS.has(row.act)) return;
   const { day, hour } = clock(new Date(at));
+  if (Array.isArray(row.blocks) && row.blocks.length > 0) {
+    stats.blocked.total += 1;
+    stats.blocked.days.add(day);
+    return;
+  }
   const buckets = [stats.all, hour >= 18 || hour < 6 ? stats.night : stats.day];
   if (typeof row.addressed === 'boolean' && typeof row.chat === 'string' && row.chat.startsWith('group:')) {
     buckets.push(row.addressed ? stats.addressed : stats.unaddressed);
@@ -71,6 +76,9 @@ export function buildProfile(memory, language, activity, quiz) {
     speech.push(zh ? `${all.total} 条判断里，有 ${all.replies} 次倾向接话（${percent(rate(all))}%）。`
       : `${all.replies} of ${all.total} decisions favoured replying (${percent(rate(all))}%).`);
     speech.push(zh ? '记录的是接话判断，尚未核对实际发言。' : 'These are reply decisions. Sent messages have not been verified.');
+    if (stats.blocked?.total) speech.push(zh
+      ? `另有 ${stats.blocked.total} 次判断带有系统拦截记录，未计入性格判断。`
+      : `${stats.blocked.total} decisions carried system-block markers and were excluded from personality estimates.`);
     if (ready(all, MIN_DECISIONS)) {
       if (strongContrast(addressed, unaddressed)) {
         speech.push(zh ? `群聊中，被点名时 ${addressed.replies}/${addressed.total} 次倾向接话，没被点名时是 ${unaddressed.replies}/${unaddressed.total} 次。`
@@ -100,6 +108,9 @@ export function buildProfile(memory, language, activity, quiz) {
       rhythmRank = 3;
     }
   }
+  if (!stats?.all.total && stats?.blocked?.total) speech.push(zh
+    ? `本期 ${stats.blocked.total} 次判断都带有系统拦截记录，无法据此判断接话习惯。`
+    : `All ${stats.blocked.total} decisions carried system-block markers, so reply habits cannot be estimated from them.`);
 
   const emotionLines = [];
   let emotionSummary = '';

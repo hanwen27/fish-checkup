@@ -317,8 +317,10 @@ export function readMemory(memoryDir, { sampleDays = 7, now = new Date(), timezo
       profileDays: acc.days.size,
       tagCount: acc.tags.size,
       // 多样性 = 不同 tag 数 / 出现总次数（0..1）
-      tagDiversity: acc.total > 0 ? acc.tags.size / Math.max(1, [...acc.tags.values()].reduce((a, b) => a + b, 0)) : 0,
-      valenceNonZeroRatio: acc.valenceCount > 0 ? acc.valenceNonZero / acc.valenceCount : 0,
+      tagDiversity: [...acc.tags.values()].reduce((a, b) => a + b, 0) > 0
+        ? acc.tags.size / [...acc.tags.values()].reduce((a, b) => a + b, 0)
+        : null,
+      valenceNonZeroRatio: acc.valenceCount > 0 ? acc.valenceNonZero / acc.valenceCount : null,
       avgWeight: acc.weightCount > 0 ? acc.weightSum / acc.weightCount : 0,
     };
   }
@@ -381,21 +383,27 @@ export function readMemory(memoryDir, { sampleDays = 7, now = new Date(), timezo
     out.sizes.decisions = decStat.size;
     const profile = profileDecisions();
     const acc = {
-      total: 0, spoke: 0, lens: [], confSum: 0, confCount: 0,
-      kinds: new Map(), hours: new Array(24).fill(0), addressed: 0, blocks: 0,
+      total: 0, judged: 0, spoke: 0, lens: [], confSum: 0, confCount: 0,
+      kinds: new Map(), hours: new Array(24).fill(0), addressed: 0, groupDecisions: 0, blocks: 0,
     };
     try {
       const { rows } = parseJsonLines(readTailLines(join(dir, 'decisions.jsonl'), MEMORY_MAX_LINES).lines);
       for (const d of rows) {
         const at = Date.parse(d?.at ?? '');
-        if (!Number.isFinite(at) || at < since) continue;
-        if (at <= now.getTime()) observeDecision(profile, d, at, clock);
+        if (!Number.isFinite(at) || at < since || at > now.getTime()) continue;
+        if (!['answer', 'ask', 'act', 'hold', 'silent'].includes(d?.act)) continue;
+        acc.judged += 1;
+        const systemBlocked = Array.isArray(d?.blocks) && d.blocks.length > 0;
+        observeDecision(profile, d, at, clock);
+        if (systemBlocked) { acc.blocks += 1; continue; }
         acc.total += 1;
         if (d?.act && d.act !== 'silent') acc.spoke += 1;
         if (typeof d?.len === 'number') acc.lens.push(d.len);
         if (typeof d?.conf === 'number') { acc.confSum += d.conf; acc.confCount += 1; }
-        if (d?.addressed === true) acc.addressed += 1;
-        if (Array.isArray(d?.blocks) && d.blocks.length > 0) acc.blocks += 1;
+        if (typeof d?.addressed === 'boolean' && typeof d?.chat === 'string' && d.chat.startsWith('group:')) {
+          acc.groupDecisions += 1;
+          if (d.addressed) acc.addressed += 1;
+        }
         const k = String(d?.kind ?? '');
         if (k) acc.kinds.set(k, (acc.kinds.get(k) ?? 0) + 1);
         acc.hours[new Date(at).getHours()] += 1;
@@ -406,11 +414,14 @@ export function readMemory(memoryDir, { sampleDays = 7, now = new Date(), timezo
     out.profileDecisions = finishDecisions(profile);
     out.decisions = {
       total: acc.total,
+      judgedTotal: acc.judged,
+      blockedCount: acc.blocks,
+      groupDecisionCount: acc.groupDecisions,
       speakRate: acc.total > 0 ? acc.spoke / acc.total : null,
       medianLen: median(acc.lens),
       avgConf: acc.confCount > 0 ? acc.confSum / acc.confCount : null,
-      addressedRate: acc.total > 0 ? acc.addressed / acc.total : null,
-      blockedRate: acc.total > 0 ? acc.blocks / acc.total : null,
+      addressedRate: acc.groupDecisions > 0 ? acc.addressed / acc.groupDecisions : null,
+      blockedRate: acc.judged > 0 ? acc.blocks / acc.judged : null,
       kindConcentration: concentration([...acc.kinds.values()]),
       hourEntropy: normalizedEntropy(acc.hours),
       hourHistogram: acc.hours.slice(),

@@ -10,6 +10,7 @@
  */
 
 import { calibrate, apdex, CREDIT, checksScore, mark, CALIBRATION_VERSION } from './scale.mjs';
+import { modelCallRecords } from './usage-metrics.mjs';
 
 /**
  * 分数 → 状态。
@@ -136,9 +137,7 @@ function stabilityRaw(rate) {
 
 export function stability(usage) {
   const all = usage?.records ?? [];
-  const recs = all.filter((r) => (!r.role || r.role === 'main')
-    && !['diagnostic', 'probe'].includes(String(r.purpose).toLowerCase())
-    && ['completed', 'failed', 'aborted'].includes(r.outcome));
+  const recs = modelCallRecords(usage);
   const excluded = all.length - recs.length;
   if (!usage?.ok || recs.length < MIN_SAMPLE) {
     return dim('stability', '稳定性', 0.22, {
@@ -249,9 +248,7 @@ function latencyRaw(p95s) {
 
 export function latency(usage) {
   const all = usage?.records ?? [];
-  const recs = all.filter((r) => (!r.role || r.role === 'main')
-    && !['diagnostic', 'probe'].includes(String(r.purpose).toLowerCase())
-    && r.outcome === 'completed' && Number.isFinite(r.elapsedMs) && r.elapsedMs >= 0);
+  const recs = modelCallRecords(usage).filter((r) => r.outcome === 'completed' && Number.isFinite(r.elapsedMs) && r.elapsedMs >= 0);
   const excluded = all.length - recs.length;
   if (!usage?.ok || recs.length < MIN_SAMPLE) {
     return dim('latency', '响应速度', 0.15, {

@@ -11,3 +11,6 @@ export { CHECKUP_WORLD as definition };
 export const CHECKUP: WorldDefinition<CheckupSection> = CHECKUP_WORLD;
 
 export default CHECKUP_WORLD;
+
+export { createCooperativeCheckupDefinition } from './world.ts';
+export type { CooperativeHost } from './cooperative-host.ts';

@@ -21,7 +21,7 @@ function withNotes(names, check) {
       const batchCopy = start / 1000 + 86400 + i * .8;
       utimesSync(path, batchCopy, batchCopy);
     }
-    check(readHandoffs(root));
+    check(readHandoffs(root, { now: new Date(start + 2 * 86400_000) }));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
