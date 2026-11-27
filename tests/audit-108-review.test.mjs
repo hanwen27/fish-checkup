@@ -129,12 +129,40 @@ test('Missing emotion annotations stay unknown instead of producing zero-percent
   writeFileSync(join(memoryDir, 'entries.jsonl'), entries.map(JSON.stringify).join('\n'));
 
   const memory = readMemory(dir, { now });
+  assert.equal(memory.entries.valenceCount, 0);
   assert.equal(memory.entries.valenceNonZeroRatio, null);
   assert.equal(memory.entries.tagDiversity, null);
   assert.equal(axisSN(memory).score, null);
   assert.equal(axisTF(memory).score, null);
   const stats = deriveStats({ memory });
+  assert.equal(stats.valenceRatio, null);
+  assert.equal(deriveStats({ memory: { entries: { ...memory.entries, valenceNonZeroRatio: 0 } } }).valenceRatio, null);
   const ids = collectTags(stats).tags.map(({ id }) => id);
+  assert.ok(!ids.includes('cold-log'));
+  assert.deepEqual(buildProfile(memory, 'zh').evidence.find(({ id }) => id === 'emotion').lines, ['记忆未标注情绪字段。']);
+}));
+
+test('Emotion ratio excludes unlabelled entries while retaining explicit neutral annotations', () => withData((dir) => {
+  const memoryDir = join(dir, 'memory');
+  mkdirSync(memoryDir);
+  const file = join(memoryDir, 'entries.jsonl');
+  const base = { t: timestamp, text: 'A dated memory' };
+  const writeEntries = (annotations) => writeFileSync(file, annotations.map((annotation) => JSON.stringify({ ...base, ...annotation })).join('\n'));
+  const neutral = [{ emotion: '平静' }, { emotion: { valence: 0 } }, { valence: 0 }];
+  writeEntries([{}, { emotion: '' }, { emotion: null }, ...neutral]);
+  let memory = readMemory(dir, { now });
+  assert.equal(memory.entries.valenceCount, 3);
+  assert.equal(memory.entries.valenceNonZeroRatio, 0);
+  const tag = collectTags(deriveStats({ memory })).tags.find(({ id }) => id === 'cold-log');
+  assert.match(tag.evidence, /已标注情绪.*非中性占 0%/);
+  assert.ok(!buildProfile(memory, 'zh').evidence.find(({ id }) => id === 'emotion').lines.includes('记忆未标注情绪字段。'));
+
+  writeEntries([{}, { emotion: 'unknown' }, ...neutral, { emotion: { valence: 0.8 } }, { emotion: '开心' }]);
+  memory = readMemory(dir, { now });
+  assert.equal(memory.entries.valenceCount, 5);
+  assert.equal(memory.entries.valenceNonZeroRatio, 2 / 5);
+  const ids = collectTags(deriveStats({ memory })).tags.map(({ id }) => id);
+  assert.ok(ids.includes('open-heart'));
   assert.ok(!ids.includes('cold-log'));
 }));
 
@@ -154,9 +182,25 @@ test('Personality stability tags share the model-call filter and ignore platform
   assert.equal(diagnosticOnly.failRate, null);
   const ids = collectTags({ ...stats, blockedRate: 0.93 }).tags.map(({ id }) => id);
   assert.ok(!ids.includes('silent-blocked'));
+  assert.ok(ids.includes('bad-patch'));
+  assert.ok(!ids.includes('rough-patch'));
   const diagnosticIds = collectTags(diagnosticOnly).tags.map(({ id }) => id);
   assert.ok(!diagnosticIds.includes('rough-patch'));
   assert.ok(!diagnosticIds.includes('bad-patch'));
+});
+
+test('Near-synonymous tags keep one representative per metric and combos use the displayed evidence', () => {
+  const result = collectTags({ failRate: 0.38, speakRate: 1, medianLen: 25, handoffScore: 95,
+    entryTotal: 3000, nightShare: 0.6, earlyShare: 0.02, quizTaken: true });
+  const ids = result.tags.map(({ id }) => id);
+  for (const group of [
+    ['bad-patch', 'rough-patch'], ['high-speak', 'asks-back'], ['huge-memory', 'big-memory'], ['deep-night', 'night-owl', 'night-only'],
+  ]) assert.deepEqual(ids.filter((id) => group.includes(id)), [group[0]]);
+  assert.equal(result.hitCount, result.tags.length);
+  assert.equal(Object.values(result.rarity).reduce((a, b) => a + b, 0), result.hitCount);
+  assert.deepEqual(result.combos.find(({ id }) => id === 'tired-steady').need, ['最近老出岔子', '交接不乱']);
+  assert.ok(!collectTags({ failRate: 0.2 }).tags.some(({ id }) => id === 'bad-patch'));
+  assert.ok(collectTags({ failRate: 0.2 }).tags.some(({ id }) => id === 'rough-patch'));
 });
 
 test('Brief reports do not assign a root cause to model-request failures', () => {

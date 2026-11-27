@@ -12,6 +12,15 @@ export function makeDeepCheckupPanel() {
       const states = { running: '进行中', stopping: '正在停止，等待在途请求结算', stopped: '已停止', completed: '检测完成', paused: '已暂停', failed: '执行失败', interrupted: '上次运行被中断' };
       const reasonNames = {
         'isolated-executor-unavailable': '当前 COO 未提供隔离执行器，暂不能启动深度体检。',
+        'companion-config-unavailable': '无法读取 companion/config.json，请核对 COO 主目录。',
+        'provider-unavailable': '尚未配置有效的 activeProvider。',
+        'provider-config-unavailable': '无法读取当前提供方的 config.json。',
+        'provider-model-unavailable': '当前提供方缺少 spec.model 模型名称。',
+        'provider-endpoint-unavailable': '当前提供方缺少有效的 baseUrl 端点。',
+        'provider-protocol-unsupported': '内置隔离执行器当前仅支持 OpenAI 兼容接口（/chat/completions），暂不支持原生 Anthropic 或 Gemini v1beta 协议。',
+        'provider-key-unavailable': '当前提供方缺少 secret 或 .env 中的 API 密钥。',
+        'context-window-unavailable': '当前提供方缺少有效的 spec.contextWindow。',
+        'provider-output-limit-unavailable': '当前提供方缺少有效的 spec.maxTokens。',
         'reservation-or-context-unavailable': '无法核对请求预算，或所选长度档超过当前上下文容量。',
         'budget-too-small': '本次题集超过执行预留上限。请核对 Token 上限或减少测试组后重新预检；仍受限时需检查执行器。',
         'preflight-expired': '预检已过期，请重新预检并确认。',
@@ -140,9 +149,10 @@ export function makeDeepCheckupPanel() {
         }
         const budget = make('div', 'sc-deep-budget-grid sc-deep-preflight-grid');
         const plan = preflight?.plan;
+        const compactTok = (n) => !Number.isFinite(n) ? '未知' : n < 1000 ? num(n) : n < 1000000 ? `${(n / 1000).toFixed(1)}K` : `${(n / 1000000).toFixed(1)}M`;
         budget.append(fact('模型', plan?.model ?? status?.capability?.model ?? '未选择'),
           fact('预计请求', plan ? `${num(plan.totals.requests)} 次` : '待预检'),
-          fact('输入 / 输出 Token 上限', plan ? `${num(plan.totals.inputTokens)} / ${num(plan.totals.outputTokens)}` : '待核算', '输入是发送的材料，输出是模型的回答；这里显示预留上限'),
+          fact('输入 / 输出 Token 上限', plan ? `${compactTok(plan.totals.inputTokens)} / ${compactTok(plan.totals.outputTokens)}` : '待核算', '输入是发送的材料，输出是模型的回答；这里显示预留上限'),
           fact('预计耗时', plan?.durationMs ? `${num(plan.durationMs[0] / 60000)}–${num(plan.durationMs[1] / 60000)} 分钟` : '暂无可靠估时', '缺少匹配样本时不填固定时间'),
           fact('数据类型', '合成测试材料', '不读取真实对话与用户记忆；另含执行器声明的提示'),
           fact('运行方式', '独立测试 · 顺序执行', '不调用工具，不写持久记忆，不自动重试'));
@@ -219,20 +229,147 @@ export function makeDeepCheckupPanel() {
       function renderReport(content) {
         const run = status?.run; const report = status?.report;
         if (!run || !report) { content.append(note('尚无深度体检报告。未执行的项目不会显示演示成绩。')); return; }
-        content.append(make('h2', '', '深度体检报告'), note(`${states[run.state] ?? run.state} · 不生成综合总分。仅描述本次题集与当前配置。`));
-        content.append(section('结果速读', note(report.summary)));
-        content.append(memoryScopeCard(report.memoryScope));
-        const facts = make('div', 'sc-deep-budget-grid');
-        facts.append(fact('模型', run.model), fact('运行方法', run.method), fact('输入 / 输出 Token', `${num(run.usage.inputTokens)} / ${num(run.usage.outputTokens)}`, '仅含已回报用量，包含失败请求的已知消耗'), fact('计量状态', run.usage.complete && !run.unsettled ? '已回报' : '存在未回报用量'));
-        content.append(section('本次运行条件与消耗', facts));
-        const readings = make('div', 'sc-deep-reading-grid');
+        const compactTok = (n) => !Number.isFinite(n) ? '未知' : n < 1000 ? num(n) : n < 1000000 ? `${(n / 1000).toFixed(1)}K` : `${(n / 1000000).toFixed(1)}M`;
+        const totPass = report.groups.reduce((s, g) => s + (g.pass || 0), 0);
+        const totFail = report.groups.reduce((s, g) => s + (g.fail || 0), 0);
+        const totValid = report.groups.reduce((s, g) => s + (g.valid || 0), 0);
+        const totPlanned = report.groups.reduce((s, g) => s + (g.planned || 0), 0);
+        const allOk = run.state === 'completed' && totValid > 0 && totFail === 0 && totPass === totValid;
+        const hasFail = totFail > 0 || ['failed', 'paused', 'interrupted'].includes(run.state);
+        const tone = allOk ? 'ok' : hasFail ? 'bad' : 'warn';
+        const headlineText = allOk
+          ? `全部 ${totPass} 项合成体检通过`
+          : totFail > 0
+            ? `${totFail} 项未通过（通过 ${totPass} / ${totPlanned}）`
+            : `${states[run.state] ?? run.state}（已通过 ${totPass} / ${totPlanned}）`;
+
+        // 1. Hero 结论卡（第一眼看懂结果）
+        const hero = make('section', `sc-deep-hero sc-deep-hero-${tone}`);
+        const heroTop = make('div', 'sc-deep-hero-top');
+        const heroTitleWrap = make('div', 'sc-deep-hero-title');
+        const badge = make('span', `sc-deep-badge sc-deep-badge-${tone}`, allOk ? '✓ 体检通过' : hasFail ? '⚠ 发现异常' : '● 部分完成');
+        heroTitleWrap.append(badge, make('h2', '', headlineText));
+        const exportBtn = button('导出文字报告', async () => {
+          try {
+            const result = await call('deepText');
+            const url = URL.createObjectURL(new Blob([result.text], { type: 'text/plain;charset=utf-8' }));
+            const link = make('a'); link.href = url; link.download = `deep-checkup-${run.id}.txt`; link.click();
+            ctx.timeout(() => URL.revokeObjectURL(url), 1000);
+          } catch { error = '报告导出失败，请稍后重试。'; paint(); }
+        });
+        heroTop.append(heroTitleWrap, exportBtn);
+        const heroMeta = make('div', 'sc-deep-hero-meta');
+        heroMeta.append(
+          make('span', 'sc-deep-chip', `模型 · ${run.model}`),
+          make('span', 'sc-deep-chip', `消耗 · ${compactTok(run.usage.inputTokens)} 入 / ${compactTok(run.usage.outputTokens)} 出`),
+          make('span', 'sc-deep-chip', `状态 · ${states[run.state] ?? run.state}`),
+          make('span', 'sc-deep-chip', run.usage.complete && !run.unsettled ? '计量完整' : '存在未回报用量'),
+        );
+        const heroSummary = make('div', 'sc-deep-hero-summary');
+        heroSummary.append(make('span', 'sc-deep-hero-label', '结果速读'), make('p', '', report.summary));
+        hero.append(heroTop, heroMeta, heroSummary);
+        content.append(hero);
+
+        if (!run.usage.complete || run.unsettled) {
+          content.append(note('用量回报不完整，已回报 Token 只是已知部分。请查看运行状态中的未回报请求预留，不要把未知用量当作零。', true));
+        }
+
+        // 1.5 未通过 / 无效项具体原因（直出主屏，一眼看懂到底错在哪！）
+        const explainReason = (raw) => {
+          const text = String(raw ?? '').trim();
+          if (!text) return '未提供详细原因';
+          if (text === 'format' || /format|json/i.test(text)) return '输出格式不合规（未严格按要求的纯 JSON 格式回复，可能多写了说明文字或代码块）';
+          if (text === 'mismatch' || /mismatch|expected/i.test(text)) return '回答内容与目标事实不符（漏读信息或仍沿用了更正前的旧值）';
+          if (text === 'usage-unavailable') return '模型未回报 Token 用量，记为无效样本';
+          if (/timeout|abort/i.test(text)) return '请求超时或被中止';
+          if (/provider|http|error|network/i.test(text)) return `接口调用失败（${text}）`;
+          return text;
+        };
+        const labelCaseId = (id) => {
+          const posMap = { begin: '首部', middle: '中部', end: '尾部' };
+          const mCtx = String(id).match(/^context-(\d+)-(begin|middle|end)$/);
+          if (mCtx) return `上下文保持 · ${Math.round(Number(mCtx[1]) / 1024)}K ${posMap[mCtx[2]]}`;
+          const mIns = String(id).match(/^instructions-(\d+)$/);
+          if (mIns) return `指令保持 · 第 ${Number(mIns[1]) + 1} 题`;
+          const mWm = String(id).match(/^working-memory-(\d+)$/);
+          if (mWm) return `会话内事实更新 · 第 ${Number(mWm[1]) + 1} 题`;
+          return String(id);
+        };
+        const rawResults = Array.isArray(run.results) ? run.results : [];
+        const problemItems = rawResults.filter((r) => r.outcome !== 'pass');
+        if (problemItems.length > 0) {
+          const list = make('div', 'sc-deep-problem-list');
+          for (const p of problemItems) {
+            const row = make('div', 'sc-deep-problem-row');
+            const tag = make('span', `sc-deep-badge sc-deep-badge-${p.outcome === 'fail' ? 'bad' : 'warn'}`, p.outcome === 'fail' ? '未通过' : '无效');
+            const info = make('div', 'sc-deep-problem-info');
+            info.append(make('strong', '', labelCaseId(p.id)), make('p', '', explainReason(p.reason)));
+            row.append(tag, info);
+            list.append(row);
+          }
+          content.append(section(`异常项具体原因（${problemItems.length} 项）`, list, '直接定位每一道没过的题和具体原因'));
+        }
+
+        // 2. 三项核心 KPI 卡片（绿/橙/红状态 + 进度条 + 白话建议）
+        const readings = make('div', 'sc-deep-kpi-grid');
         for (const item of report.groups) {
-          const card = make('article', 'sc-deep-reading');
-          card.append(make('h3', '', item.name), make('span', 'sc-deep-pill', item.outcomeLabel),
-            make('p', '', item.explanation), make('h4', '', '建议下一步'), make('p', '', item.nextStep));
+          const itemTone = item.valid > 0 && item.fail === 0 ? 'ok' : item.fail > 0 ? 'bad' : 'warn';
+          const pct = item.planned > 0 ? Math.round((item.pass / item.planned) * 100) : 0;
+          const card = make('article', `sc-deep-kpi sc-deep-kpi-${itemTone}`);
+          const kpiHead = make('div', 'sc-deep-kpi-head');
+          kpiHead.append(make('h3', '', item.name), make('span', `sc-deep-badge sc-deep-badge-${itemTone}`, item.outcomeLabel));
+          const scoreRow = make('div', 'sc-deep-kpi-score');
+          scoreRow.append(make('strong', '', `${item.pass} / ${item.planned}`), make('span', '', `通过（有效 ${item.valid} · 失败 ${item.fail}）`));
+          const bar = make('div', 'sc-deep-kpi-bar');
+          const fill = make('div', `sc-deep-kpi-fill sc-deep-kpi-fill-${itemTone}`);
+          fill.style.width = `${pct}%`;
+          bar.append(fill);
+          const groupProblems = problemItems.filter((r) => r.group === item.group);
+          const nextBox = make('div', 'sc-deep-kpi-next');
+          nextBox.append(make('span', '', '建议下一步'), make('p', '', item.nextStep));
+          card.append(kpiHead, scoreRow, bar, make('p', 'sc-deep-kpi-desc', item.explanation));
+          if (groupProblems.length > 0) {
+            const pNote = make('p', 'sc-deep-kpi-err', `失分点：${groupProblems.map((r) => `${labelCaseId(r.id).split(' · ')[1] ?? r.id}（${r.reason === 'format' ? '格式不合规' : explainReason(r.reason)}）`).join('；')}`);
+            card.append(pNote);
+          }
+          card.append(nextBox);
           readings.append(card);
         }
-        content.append(section('对你意味着什么', readings, '先看解读，再按需查看下方证据'));
+        content.append(section('对你意味着什么', readings, '绿标正常 · 橙/红标需重点关注'));
+
+        // 3. 上下文长度 × 位置 3×3 状态矩阵（一眼看清首/中/尾在哪漏了）
+        if (report.lengths?.length) {
+          const positionOrder = [['begin', '首部'], ['middle', '中部'], ['end', '尾部']];
+          const outcomeMeta = { pass: ['✓ 通过', 'ok'], fail: ['✕ 未通过', 'bad'], invalid: ['— 无效', 'warn'] };
+          const matrixWrap = make('div', 'sc-deep-matrix-wrap');
+          const matrix = make('table', 'sc-deep-matrix');
+          const thead = make('thead');
+          const hr = make('tr');
+          hr.append(make('th', '', '材料长度'));
+          for (const [, posLabel] of positionOrder) hr.append(make('th', '', posLabel));
+          thead.append(hr); matrix.append(thead);
+          const tbody = make('tbody');
+          for (const length of report.lengths) {
+            const tr = make('tr');
+            tr.append(make('td', 'sc-deep-matrix-label', length.label));
+            for (const [posKey] of positionOrder) {
+              const sample = length.samples.find((s) => s.position === posKey);
+              const [txt, cellTone] = outcomeMeta[sample?.outcome] ?? ['— 未知', 'warn'];
+              const td = make('td');
+              td.append(make('span', `sc-deep-cell sc-deep-cell-${cellTone}`, txt));
+              tr.append(td);
+            }
+            tbody.append(tr);
+          }
+          matrix.append(tbody); matrixWrap.append(matrix);
+          content.append(section('上下文首／中／尾定位矩阵', matrixWrap, '一眼看清不同长度与位置是否漏信息'));
+        }
+
+        // 4. 详细数据、记忆范围与技术说明全部收纳进折叠抽屉（默认收起，保持主界面清爽）
+        const drawer = make('details', 'sc-deep-drawer');
+        drawer.append(make('summary', '', '展开详细证据、记忆范围与运行说明'));
+        const drawerBody = make('div', 'sc-deep-drawer-body');
+        drawerBody.append(memoryScopeCard(report.memoryScope));
         const rows = make('div', 'sc-deep-table-wrap'); const table = make('table', 'sc-deep-table');
         const header = make('tr'); for (const label of ['项目', '结论', '有效 / 计划', '通过 / 未通过', '无效', '未执行', '证据强度']) header.append(make('th', '', label)); const head = make('thead'); head.append(header); table.append(head);
         const body = make('tbody');
@@ -241,33 +378,19 @@ export function makeDeepCheckupPanel() {
           for (const value of [item.name, item.outcomeLabel, `${item.valid} / ${item.planned}`, `${item.pass} / ${item.fail}`, item.invalid, item.notRun, item.evidenceLabel]) row.append(make('td', '', value));
           body.append(row);
         }
-        table.append(body); rows.append(table); content.append(section('分项结果与证据', rows));
-        if (report.lengths?.length) {
-          const lengths = make('div', 'sc-deep-card-body');
-          const positionNames = { begin: '首部', middle: '中部', end: '尾部' };
-          const outcomes = { pass: '通过', fail: '未通过', invalid: '无效' };
-          for (const length of report.lengths) lengths.append(make('p', '', `${length.label}：${length.samples.map((sample) => `${positionNames[sample.position] ?? sample.position} ${outcomes[sample.outcome] ?? '未知'}`).join(' · ')}`));
-          lengths.append(make('p', '', '每个位置仅一个样本，字符档不等于 Token 窗口；当前证据不足以推荐扩大或缩短上下文。'));
-          content.append(section('上下文长度档证据', lengths));
-        }
+        table.append(body); rows.append(table);
+        drawerBody.append(section('分项结果与证据', rows));
         const terms = make('details', 'sc-deep-card-body'); terms.append(make('summary', '', '看不懂术语？查看测试内容与判读方法'));
         for (const item of report.groups) terms.append(make('p', '', `${item.name}：${item.purpose}`));
         terms.append(make('p', '', '有效样本：能完成判分的回答。无效请求：超时、取消或缺少用量等，不能当作模型能力差。通过：符合本题预设答案，不等于日常使用永不出错。'),
           make('p', '', '证据强度：描述本次样本覆盖程度，不是统计置信度或长期可靠率。字符档：测试材料的字符数量，不等于模型的 Token 窗口。'));
-        content.append(terms);
+        drawerBody.append(terms);
         const details = make('details', 'sc-deep-card-body'); details.append(make('summary', '', '查看逐项合成测试证据'));
-        for (const item of report.evidence) details.append(make('p', 'sc-deep-footnote', `${item.id} · ${item.outcome} · ${item.reason}`)); content.append(details);
-        content.append(note(`未覆盖：${report.untested.join('、')}。${report.limitations.join(' ')}`));
-        if (!run.usage.complete || run.unsettled) content.append(note('用量回报不完整，已回报 Token 只是已知部分。请查看运行状态中的未回报请求预留，不要把未知用量当作零。', true));
-        const actions = make('div', 'sc-deep-actions');
-        actions.append(button('导出文字报告', async () => {
-          try {
-            const result = await call('deepText');
-            const url = URL.createObjectURL(new Blob([result.text], { type: 'text/plain;charset=utf-8' }));
-            const link = make('a'); link.href = url; link.download = `deep-checkup-${run.id}.txt`; link.click();
-            ctx.timeout(() => URL.revokeObjectURL(url), 1000);
-          } catch { error = '报告导出失败，请稍后重试。'; paint(); }
-        })); content.append(actions);
+        for (const item of report.evidence) details.append(make('p', 'sc-deep-footnote', `${item.id} · ${item.outcome} · ${item.reason}`));
+        drawerBody.append(details);
+        drawerBody.append(note(`未覆盖：${report.untested.join('、')}。${report.limitations.join(' ')}`));
+        drawer.append(drawerBody);
+        content.append(drawer);
       }
 
       function renderCooperative(content) {

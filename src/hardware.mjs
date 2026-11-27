@@ -212,7 +212,7 @@ export function stability(usage) {
       { label: '失败', value: String(failed) },
       { label: '被中断', value: String(aborted), hint: '按半次失败计' },
       { label: '加权失败率', value: pct(rate) },
-      ...(Number.isFinite(apdexRate) ? [{ label: '体感达成度', value: `${round1(apdexRate)} / 100`, hint: '成功算满意、中断算勉强，Apdex 口径' }] : []),
+      ...(Number.isFinite(apdexRate) ? [{ label: '体感达成度（调用体验有多顺）', value: `${round1(apdexRate)} / 100`, hint: '成功算满意、中断算勉强，Apdex（响应满意度指标）口径' }] : []),
       ...(worstDay
         ? [{
           label: '最差一天',
@@ -226,7 +226,7 @@ export function stability(usage) {
         hint: `${Math.round(d.bad)} / ${d.n} 次`,
       })),
     ],
-    formula: '失败率 ≤2% 得原始满分；2%→10% 线性降到 80；10%→30% 线性降到 60；超过 30% 继续降但下限 30。原始分再按缺口曲线映射成展示分（100 → 100，80 → 88，60 → 70）。被中断（aborted）按半次失败计。逐日数据也列出，便于分辨「某几天集中坏」和「长期折腾」。',
+    formula: '失败率 ≤2% 得原始满分；2%→10% 线性降到 80；10%→30% 线性降到 60；超过 30% 继续降但下限 30。原始分再按缺口曲线映射（按离满分的差距换算）成展示分（100 → 100，80 → 88，60 → 70）。被中断（aborted）按半次失败计。逐日数据也列出，便于分辨「某几天集中坏」和「长期折腾」。',
     meaning: '这里看的是模型调用有没有频繁出错——出错多她会反复重试，你能直接感觉到她「卡」。逐日那几行能看出是某几天出问题，还是长期如此。',
   });
 }
@@ -259,7 +259,7 @@ export function latency(usage) {
         { label: '成功调用样本', value: String(recs.length), hint: `门槛 ${MIN_SAMPLE} 条` },
         { label: '失败/中断未计入', value: String(excluded), hint: '不代表模型响应速度' },
       ],
-      formula: '只统计 outcome=completed 的调用。p95：≤8 秒原始满分；8→25 秒降到 78；25→60 秒降到 58；超过 60 秒继续降但下限 30。原始分再按缺口曲线映射成展示分。',
+      formula: '只统计 outcome=completed 的调用。p95：≤8 秒原始满分；8→25 秒降到 78；25→60 秒降到 58；超过 60 秒继续降但下限 30。原始分再按缺口曲线映射（按离满分的差距换算）成展示分。',
       meaning: '失败和中断通常会很快返回，把它们混进来会让越坏的日子看起来越快。这里刻意只看成功调用。',
     });
   }
@@ -296,9 +296,9 @@ export function latency(usage) {
       { label: 'p95', value: `${round1(p95)} 秒` },
       { label: '最慢一条', value: `${round1(maxS)} 秒` },
       { label: '超过 60 秒', value: `${over60} 条` },
-      ...(Number.isFinite(apdexScore) ? [{ label: '体感达成度', value: `${round1(apdexScore)} / 100`, hint: '10 秒内算满意、40 秒内算勉强，Apdex 口径' }] : []),
+      ...(Number.isFinite(apdexScore) ? [{ label: '体感达成度（调用体验有多顺）', value: `${round1(apdexScore)} / 100`, hint: '10 秒内算满意、40 秒内算勉强，Apdex（响应满意度指标）口径' }] : []),
     ],
-    formula: '只统计成功调用。p95：≤8 秒原始满分；8→25 秒降到 78；25→60 秒降到 58；超过 60 秒继续降但下限 30。原始分再按缺口曲线映射成展示分。',
+    formula: '只统计成功调用。p95：≤8 秒原始满分；8→25 秒降到 78；25→60 秒降到 58；超过 60 秒继续降但下限 30。原始分再按缺口曲线映射（按离满分的差距换算）成展示分。',
     meaning: 'p95 是「最慢的那 5% 有多慢」。它只看成功调用，避免快速失败把坏日子伪装成更快；而最终分数还会把长尾压一压，因为多数调用其实是快的。',
   });
 }
@@ -402,7 +402,7 @@ export function cacheHealth(usage) {
       { label: '未上报缓存样本', value: String(tokenRecords.length - recs.length) },
       { label: '前缀哈希变化', value: `${changes} 次`, hint: `${round1(changeRate)} 次 / 千条，扣 ${round1(penalty)} 分` },
     ],
-    formula: '加权命中率 = Σ缓存命中 / Σ输入 token；85% 以上原始满分，60→85% 线性降到 68。前缀变化按每千条记录计，每次扣 1.6 分、最多扣 18。原始分再按缺口曲线映射成展示分。',
+    formula: '加权命中率 = Σ缓存命中 / Σ输入 token；85% 以上原始满分，60→85% 线性降到 68。前缀变化按每千条记录计，每次扣 1.6 分、最多扣 18。原始分再按缺口曲线映射（按离满分的差距换算）成展示分。',
     meaning: '命中率高说明大部分上下文不用重算；前缀一变就要重算，账单和延迟都会涨，所以还要看前缀变化频率。这里对个人自用的门槛放得比生产系统宽，85% 就算很好了。',
   });
 }

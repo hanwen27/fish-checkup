@@ -4,6 +4,8 @@
  * 这里补齐英文的标题、公式与面板 UI 文案，避免中文硬编码在浏览器端。
  */
 
+export const DECISION_LENGTH_LABEL = '长度中位数（窗口内有效判断）';
+
 export const DIM_TITLES = {
   zh: {
     stability: '稳定性', latency: '响应速度', cache: '缓存与成本',
@@ -64,6 +66,8 @@ export const UI = {
     started: '已经通知她了，等她自己来答题。',
     lastTaken: '上次测验',
     anchors: '锚点一致率',
+    anchorsPending: '暂未形成锚点对照',
+    quizPending: (batch) => `她已提交一批答案。等第${batch === 2 ? '二' : '一'}批收齐后再出完整结果。`,
     flags: '备注',
     flagFlat: '有轴答得过于整齐，已排除',
     flagPartial: '只答了一部分',
@@ -111,6 +115,8 @@ export const UI = {
     started: 'She has been notified; wait for her to answer.',
     lastTaken: 'Last taken',
     anchors: 'Anchor agreement',
+    anchorsPending: 'No anchor pairs to compare yet',
+    quizPending: (batch) => `She has submitted one batch. The full quiz result will be ready after batch ${batch}.`,
     flags: 'Notes',
     flagFlat: 'One axis answered too uniformly and was dropped',
     flagPartial: 'Only partially answered',

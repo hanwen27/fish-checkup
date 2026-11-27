@@ -49,7 +49,7 @@ test('bounded tail reader discards incomplete prefix and reports sample limits a
 test('memory records never equate installation or tool activity to a tested active memory chain', () => {
   const m = buildMemoryReport({ memory: { base: { state: 'ready', readable: 7 } } }, { inventory: { status: 'read', rows: [{ id: 'plugin-X', name: '任意记忆插件', enabled: false, version: 'v1', kind: 'world', secret: 'PRIVATE' }] }, activity: { rows: [{ id: 'plugin-X', calls: 3 }] } });
   assert.equal(m.inventoryState, 'ready'); assert.equal(m.rows[1].enabled, false); assert.equal(m.rows[1].active, null); assert.equal(m.testedImplementations, 0); assert.equal(m.rows[1].tested, false);
-  assert.doesNotMatch(JSON.stringify(m), /PRIVATE/); assert.match(m.rows[1].evidence, /不证明/);
+  assert.doesNotMatch(JSON.stringify(m), /PRIVATE/); assert.match(m.rows[1].evidence, /3 次/);
 });
 test('memory without a host inventory never claims no plugins or successful native testing', () => {
   const m = buildMemoryReport({ memory: { base: { state: 'missing' } } }); assert.match(m.summary, /无法确认/); assert.equal(m.rows.length, 1); assert.equal(m.testedImplementations, 0);

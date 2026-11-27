@@ -114,6 +114,9 @@ export function buildProfile(memory, language, activity, quiz) {
 
   const emotionLines = [];
   let emotionSummary = '';
+  if (entries?.total > 0 && entries.valenceCount === 0) {
+    emotionLines.push(zh ? '记忆未标注情绪字段。' : 'Memory entries have no emotion labels.');
+  }
   if (emotion?.count && Number.isFinite(emotion.arousalSd)) {
     const spread = emotion.arousalSd;
     emotionLines.push(zh ? `情绪强度有 ${emotion.count} 次采样，标准差为 ${spread.toFixed(2)}。`
@@ -146,10 +149,11 @@ export function buildProfile(memory, language, activity, quiz) {
     finding('emotion', zh ? '情绪起伏' : 'Emotion readings', emotionLines, emotionSummary, 1),
     finding('rhythm', zh ? '日常节奏' : 'Daily rhythm', rhythm, rhythmSummary, rhythmRank),
   ];
-  if (activity?.messages) {
-    speech.unshift(zh ? `采样到 ${activity.messages} 条成功发出的对话消息，单条长度中位数 ${activity.medianLength} 字。`
-      : `${activity.messages} sampled messages sent successfully, with a median length of ${activity.medianLength} characters.`);
-  }
+  const sentLength = activity?.messages && Number.isFinite(activity.medianLength)
+    ? (zh ? `采样到 ${activity.messages} 条成功发出的对话消息，长度中位数（近期已发送对话）${activity.medianLength} 字。`
+      : `${activity.messages} sampled messages sent successfully, with a median length (recent sent messages) of ${activity.medianLength} characters.`)
+    : null;
+  if (sentLength) speech.unshift(sentLength);
   if (activity?.opener) {
     const { word, count } = activity.opener;
     speech.push(zh ? `「${word}」作为消息开头出现 ${count} 次，跨至少两天。`
@@ -250,7 +254,7 @@ export function buildProfile(memory, language, activity, quiz) {
   const main = observations[0]?.summary ?? facts[0]?.summary;
   const additional = observations.find((item) => item.id !== observations[0]?.id)?.summary
     ?? facts.find(({ summary }) => summary !== main)?.summary;
-  const title = zh ? '再等几个泡泡，就能多认识她一点。'
+  const title = zh ? '关于她的故事，还在慢慢写。'
     : main && additional ? `${main.replace(/\.$/u, '')}, and ${additional[0].toLowerCase()}${additional.slice(1)}`
       : main ?? 'There are too few recent records to describe her habits.';
   const cardInputs = { stats, activity, emotion, entries, recent, quiz };
@@ -258,7 +262,7 @@ export function buildProfile(memory, language, activity, quiz) {
   const cues = zh ? card.cues : buildCardDetails({ ...cardInputs, language: 'zh' }).cues;
   const situation = profileSituations(cues, language, evidence, activity, quiz);
   const profile = {
-    days, evidence, recent, title: !zh ? (situation.situations[0]?.choice ?? title) : title, ...card, ...situation,
+    days, evidence, recent, sentLength, title: !zh ? (situation.situations[0]?.choice ?? title) : title, ...card, ...situation,
     diary: freshDiary(facts, activity, language, base),
     signals: collectProfileSignals(activity, entries),
   };

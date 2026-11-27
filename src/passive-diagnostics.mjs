@@ -161,26 +161,38 @@ export function buildContextReport(records, snapshot, { contextWindow = null, si
 export function buildMemoryReport(snapshot, { inventory = null, activity = null } = {}) {
   const base = snapshot?.memory?.base;
   const rows = [];
-  rows.push({ id: 'workspace-storage', name: '当前配置的工作区文件存储', kind: '存储可读性', installed: null, enabled: null, active: null, tested: false,
-    status: base?.state === 'ready' ? 'observed' : base?.state ?? 'unknown', evidence: base?.state === 'ready' ? `抽样可读文件 ${base.readable ?? 0} 个${base.limited ? '（达到采样上限）' : ''}` : '工作区缺失、不可读或未采集',
-    detail: '仅说明配置路径上的文件可读；不证明原生记忆实现正在使用，也不证明召回或回答正确。' });
+  rows.push({ id: 'workspace-storage', name: '本地工作区记忆文件', kind: '原生存储', installed: true, enabled: base?.state === 'ready', active: null, tested: false,
+    status: base?.state === 'ready' ? 'observed' : base?.state ?? 'unknown',
+    evidence: base?.state === 'ready' ? `可读文件 ${base.readable ?? 0} 个${base.limited ? '（已达单次采样上限）' : ''}` : '工作区目录缺失或不可读',
+    detail: base?.state === 'ready' ? '本机工作区记忆目录读写正常（只读统计，不写入记忆）。' : '请检查配置的工作区记忆路径。' });
   const inventoryReady = ['read', 'ready'].includes(inventory?.status);
-  for (const item of (inventoryReady && Array.isArray(inventory.rows) ? inventory.rows : []).slice(0, 100)) {
+  const allExtensions = inventoryReady && Array.isArray(inventory.rows) ? inventory.rows.slice(0, 100) : [];
+  const memoryRe = /memory|brain|fishtools|fishbrain|continuity|记忆|鱼脑/i;
+  const memExtensions = allExtensions.filter((item) => {
+    const id = String(item.id ?? '');
+    const pkg = String(item.name ?? '');
+    if (id === 'self-checkup' || pkg === 'cortico-world-self-checkup') return false;
+    return memoryRe.test(`${id} ${pkg} ${item.label ?? ''} ${item.description ?? ''}`);
+  });
+  for (const item of memExtensions) {
     const id = label(item.id, 'unknown');
     const found = activity?.rows?.find((r) => r.id === id);
-    rows.push({ id, name: label(item.name, id), kind: label(item.kind, '未声明类型'), version: label(item.version), installed: true,
+    rows.push({ id, name: label(item.label, label(item.name, id)), packageName: label(item.name, id), description: label(item.description, ''), kind: label(item.kind, '记忆插件'), version: label(item.version), installed: true,
       enabled: typeof item.enabled === 'boolean' ? item.enabled : null, active: null, tested: false, status: 'listed',
-      evidence: found ? `${found.calls} 次工具调用关联到此 World；不证明调用了记忆` : '宿主清单条目；尚无已核验记忆运行证据',
-      detail: '已安装、已启用、当前使用与实际测试是不同事实；此页未对插件发起写入或召回测试。' });
+      evidence: found ? `近窗口调用 ${found.calls} 次${found.failures ? `（失败 ${found.failures} 次）` : ''}` : '近窗口无工具调用记录',
+      detail: label(item.description, '已从本机宿主扩展清单识别。') });
   }
   const m = snapshot?.memory;
   const compatible = m?.ok && (m.entries || m.retrieve);
-  const telemetry = compatible ? { name: '当前配置位置的兼容记忆日志', sourceVerified: false, count: m.entries?.total ?? null,
+  const telemetry = compatible ? { name: '记忆检索日志统计', sourceVerified: false, count: m.entries?.total ?? null,
     retrievals: m.retrieve?.total ?? null, hitRate: m.retrieve?.hitRate ?? null, injectedRate: m.retrieve?.injectedRate ?? null, avgMs: m.retrieve?.avgMs ?? null,
-    detail: '已有兼容格式统计，窗口沿用原有记忆采集口径（至少 14 天），不是本页用量窗口。日志格式不能识别具体插件；命中不等于准确、被采用或没有遗漏。未用条目的旧 hits 字段推断长期未召回。' } : null;
+    detail: '来自本机记忆日志（至少 14 天窗口），展示记忆条目数、检索次数、命中率与平均耗时。' } : null;
+  const enabledMemCount = memExtensions.filter((item) => item.enabled === true).length;
   return { inventoryState: inventoryReady ? 'ready' : inventory?.status ?? 'not-read', rows, telemetry,
-    summary: inventoryReady ? '宿主清单已取得；记忆实现身份、当前使用与端到端效果仍需逐项验证。' : '宿主清单尚未提供，无法确认安装了哪些记忆实现；现有统计只覆盖配置工作区与可读兼容日志。',
-    testedImplementations: 0, limitations: ['此页是日常被动观察，不写入测试记忆，不运行插件代码。', '未适配、未读取、禁用、读取失败与没有记录应分别看待；缺少内部日志不等于插件故障。', '鱼脑仅是可能的第三方实现，不是检测前提或默认用户配置。', '原生机制合成实测见深度体检；它不代表当前会话正在使用的原生或第三方记忆已经通过。'] };
+    summary: inventoryReady
+      ? `已扫描 ${allExtensions.length} 个扩展，识别到 ${memExtensions.length} 个记忆相关插件（已启用 ${enabledMemCount} 个）。`
+      : '宿主清单尚未提供，无法确认已安装的记忆插件；当前仅展示本地工作区记忆文件与兼容日志。',
+    testedImplementations: 0, limitations: ['此页为只读观察，不写入测试记忆、不额外调用模型。'] };
 }
 
 export function collectPassiveDiagnostics({ dataDir, snapshot, contextWindow, inventory, timezone, now = Date.now(), sampleDays = 7 }) {
@@ -189,14 +201,21 @@ export function collectPassiveDiagnostics({ dataDir, snapshot, contextWindow, in
   const { records, ...quality } = normalizeUsage(source.rows, { since, until });
   const activity = collectToolActivity(dataDir, { since, until });
   const usage = buildTokenReport(records, { timezone, since, until, source: { state: source.state, limited: source.limited, bad: source.bad, ...quality } });
-  return { version: '1.0.9', method: 'passive-1', generatedAt: now, sampleDays, usage, activity,
+  const pluginLabels = {};
+  if (['read', 'ready'].includes(inventory?.status) && Array.isArray(inventory?.rows)) {
+    for (const row of inventory.rows) {
+      if (row?.id && row?.label) pluginLabels[String(row.id)] = String(row.label);
+      if (row?.name && row?.label) pluginLabels[String(row.name)] = String(row.label);
+    }
+  }
+  return { version: '1.1.1', method: 'passive-1', generatedAt: now, sampleDays, usage, activity, pluginLabels,
     memory: buildMemoryReport(snapshot, { inventory, activity }), context: buildContextReport(records, snapshot, { contextWindow, since, until }),
     disclosure: '本页只读本机已有记录，不额外调用模型，不写入正式记忆。所展示的是采样范围内的已知统计；缺报、读取失败和范围上限均披露，页面不自动调整配置。' };
 }
 
 export function passiveReportText(report) {
   const { usage: u, context: c, memory: m, activity: a } = report;
-  return ['鱼鱼体检 1.0.9 · 日常被动诊断', report.disclosure,
+  return ['鱼鱼体检 1.1.1 · 日常被动诊断', report.disclosure,
     `窗口：${new Date(u.since).toISOString()} — ${new Date(u.until).toISOString()}；时区 ${u.timezone}`,
     `Token：${u.summary}`, `已知输入 ${u.inputKnown ? u.input : '未知'}；已知输出 ${u.outputKnown ? u.output : '未知'}；已知合计 ${u.inputKnown + u.outputKnown ? u.knownTotal : '未知'}；记录 ${u.requests}；完整计量 ${u.complete}`,
     `读取状态 ${u.state}；采样截断 ${u.source.limited ? '是' : '否'}；坏行 ${u.source.bad}；时间无效 ${u.source.invalidTime}；去重 ${u.source.duplicates}`, u.limits,

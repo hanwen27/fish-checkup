@@ -7,8 +7,9 @@
  *   self_checkup_report        read   读报告（硬件 / 人格 / 两份都要）
  */
 
-import { loadQuiz, takeBatch, creativeBatch, scoreQuiz, scoreCreative } from './quiz.mjs';
+import { loadQuiz, takeBatch, creativeBatch, scoreQuiz, scoreCreative, quizResultForState, pendingQuizBatch } from './quiz.mjs';
 import { buildReport, reportToText } from './report.mjs';
+import { pick } from './text.mjs';
 
 export const QUIZ_TOOL = 'self_checkup_quiz';
 export const SUBMIT_TOOL = 'self_checkup_quiz_submit';
@@ -86,28 +87,22 @@ export const TOOL_SCHEMAS = [
  *   language()        → 'zh' | 'en'
  */
 export function makeToolHandlers({ snapshot, contextWindow, quizState, saveQuizState, language, now }) {
-  const lang = () => (typeof language === 'function' ? language() : language ?? 'zh');
-  const state = typeof quizState === 'function' ? quizState() : quizState;
-
-  function currentResult() {
-    const s = typeof quizState === 'function' ? quizState() : quizState;
-    if (s?.result) return s.result;
-    // 两批都齐了就地合起来算一次（不落盘，调用方决定何时存）。
-    const answers = [...(s?.batch1?.answers ?? []), ...(s?.batch2?.answers ?? [])];
-    if (answers.length === 0) return null;
-    const quiz = loadQuiz(lang());
-    return scoreQuiz(quiz, answers, { now: typeof now === 'function' ? now() : now ?? new Date() });
-  }
+  const lang = () => pick(typeof language === 'function' ? language() : language);
+  const clock = () => typeof now === 'function' ? now() : now ?? new Date();
 
   function currentReport() {
     const currentState = typeof quizState === 'function' ? quizState() : quizState;
+    const language = lang();
+    const now = clock();
+    const quizResult = quizResultForState(currentState, language, now);
     return buildReport(typeof snapshot === 'function' ? snapshot() : snapshot, {
       contextWindow: typeof contextWindow === 'function' ? contextWindow() : contextWindow ?? null,
-      quizResult: currentResult(),
-      language: lang(),
+      quizResult,
+      pendingBatch: pendingQuizBatch(currentState),
+      language,
       creativeResult: currentState?.creative ?? null,
-       quizTakenAt: currentState?.takenAt ?? null,
-      now: typeof now === 'function' ? now() : now ?? new Date(),
+      quizTakenAt: quizResult ? currentState?.takenAt ?? null : null,
+      now,
     });
   }
 
@@ -120,7 +115,7 @@ export function makeToolHandlers({ snapshot, contextWindow, quizState, saveQuizS
       const quiz = loadQuiz(lang());
       const items = batch === 3
         ? creativeBatch(quiz)
-        : takeBatch(quiz, batch, { now: typeof now === 'function' ? now() : now ?? new Date() });
+        : takeBatch(quiz, batch, { now: clock() });
       return {
         ok: true,
         batch,
@@ -137,8 +132,10 @@ export function makeToolHandlers({ snapshot, contextWindow, quizState, saveQuizS
       const batch = Number(args?.batch);
       if (batch !== 1 && batch !== 2 && batch !== 3) return { ok: false, error: 'batch must be 1, 2, or 3' };
       const answers = Array.isArray(args?.answers) ? args.answers : [];
+      const language = lang();
+      const zh = language === 'zh';
       if (batch === 3) {
-        const quiz = loadQuiz(lang());
+        const quiz = loadQuiz(language);
         const creative = scoreCreative(quiz, answers);
         const s = typeof quizState === 'function' ? quizState() : quizState;
         const next = { ...(s ?? {}), creative, creativeAt: Date.now() };
@@ -157,36 +154,42 @@ export function makeToolHandlers({ snapshot, contextWindow, quizState, saveQuizS
       if (cleaned.length === 0) {
         return { ok: false, error: 'no usable answers', rejected };
       }
+      const now = clock();
+      const quiz = loadQuiz(language);
+      const batchQuiz = { ...quiz, items: quiz.items.filter((item) => item.batch === batch) };
+      const partial = scoreQuiz(batchQuiz, cleaned, { now });
+      const accepted = partial.answered;
+      const unmatched = cleaned.length - accepted;
+      if (unmatched) rejected.push({ why: zh ? `${unmatched} 条重复或未匹配到本批题目与选项` : `${unmatched} duplicate or unmatched answer(s) in this batch` });
+      const receipt = { ok: accepted > 0, batch, received: cleaned.length, accepted, rejected };
+      if (!accepted) return { ...receipt, error: zh ? '本批没有可用答案。' : 'No usable answers for this batch.' };
+
       const s = typeof quizState === 'function' ? quizState() : quizState;
+      const waitingFor = batch === 1 ? 2 : 1;
       const next = {
         ...(s ?? {}),
-        [`batch${batch}`]: { answers: cleaned, at: Date.now() },
-        takenAt: Date.now(),
+        [`batch${batch}`]: { answers: cleaned, at: now.getTime() },
+        result: null,
       };
+      const result = quizResultForState(next, language, now);
+      next.result = result;
+      next.takenAt = result ? now.getTime() : undefined;
       if (typeof saveQuizState === 'function') saveQuizState(next);
-      const quiz = loadQuiz(lang());
-      const partial = scoreQuiz(quiz, cleaned, { now: typeof now === 'function' ? now() : now ?? new Date() });
-      // 交上来的条数不一定都能对上题（id 打错、option 越界），如实分开报。
-      const resolved = partial.answered;
-      const unmatched = cleaned.length - resolved;
+
+      const otherBatch = waitingFor === 2 ? '第二批' : '第一批';
       return {
-        ok: true,
-        batch,
-        received: cleaned.length,
-        accepted: resolved,
-        rejected: [
-          ...rejected,
-          ...(unmatched > 0 ? [{ why: `${unmatched} answer(s) did not match any item or option` }] : []),
-        ],
+        ...receipt,
+        message: zh
+          ? `已收 ${accepted} 条有效答案。${result ? '两批答案已收到，可查看完整结果。' : `等${otherBatch}收齐后再出完整结果。`}`
+          : `Received ${accepted} valid answers. ${result ? 'Both batches are in. The full report is ready.' : `The full report will be ready after batch ${waitingFor}.`}`,
         thisBatch: {
-          axes: partial.axes,
-          letters: partial.letters,
+          axes: Object.fromEntries(Object.entries(partial.axes).filter(([, score]) => Number.isFinite(score))),
+          letters: partial.letters.replaceAll('?', ''),
           anchors: partial.anchors,
         },
-        next:
-          batch === 1
-            ? `Now call ${QUIZ_TOOL} with batch=2 to finish, then report back.`
-            : 'Both batches are in. The report now shows the four-letter type and the comparison against behaviour.',
+        next: result
+          ? (zh ? `可调用 ${REPORT_TOOL} 查看报告。` : `Use ${REPORT_TOOL} to view the report.`)
+          : (zh ? `请调用 ${QUIZ_TOOL} 获取${otherBatch}（batch=${waitingFor}）。` : `Use ${QUIZ_TOOL} with batch=${waitingFor} to continue.`),
       };
     },
 

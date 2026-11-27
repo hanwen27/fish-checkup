@@ -1,6 +1,7 @@
 {
   "name": "cortico-world-self-checkup",
-  "version": "1.0.9",
+  "version": "1.1.1",
+  "author": "zaocan",
   "type": "module",
   "private": false,
   "keywords": [
@@ -17,11 +18,13 @@
     "assets/quiz.zh.json",
     "assets/icon.png",
     "assets/screenshot-1.png",
+    "assets/screenshot-2.png",
+    "assets/screenshot-3.png",
+    "assets/screenshot-4.png",
     "describe.json",
     "README.md",
     "CHANGELOG.md",
     "LICENSE",
-    "assets/screenshot-2.png",
     "tools",
     "tests",
     "results",
@@ -39,7 +42,9 @@
     "icon": "assets/icon.png",
     "screenshots": [
       "assets/screenshot-1.png",
-      "assets/screenshot-2.png"
+      "assets/screenshot-2.png",
+      "assets/screenshot-3.png",
+      "assets/screenshot-4.png"
     ],
     "describe": "describe.json",
     "webUiClient": "dist/webui.js",
@@ -52,11 +57,11 @@
     "locales": {
       "zh": {
         "displayName": "鱼鱼体检",
-        "description": "运行健康包含总览、Token 消耗、记忆状态与上下文适配；心理健康保留性格名片、情境依据、五项指标与奇遇小测。深度体检需要显式宿主适配，未接入时保持禁用。方法说明可从页面右上方打开。"
+        "description": "她最近是跑得慢了，还是心思变了？先别急着重装，做一次「鱼鱼体检」。① 运行健康：六维雷达图看稳定性、速度、缓存、上下文、交接与记忆，自带各插件 Token 消耗环形饼图与记忆插件实时监测，谁最烧 Token、哪段记忆在漏一眼看清；② 心理健康：专属小鱼插画名片、口语化性格侧写、近期常聊话题与娱乐小本本，陪你重新认识她；③ 隔离深度体检：独立合成测试检验上下文保持、指令遵循与会话内事实更新，不写入主会话、不污染记忆。日常只读不改配置，明暗主题跟着 Coo 走。"
       },
       "en": {
         "displayName": "Fish Checkup",
-        "description": "Operational health groups the overview, token usage, memory status and context fit. Wellbeing retains the illustrated personality profile, evidence, five charts and curiosity quiz. Active deep testing remains disabled without explicit host adapters. Method help is available within each main panel."
+        "description": "Running slower or acting different lately? Run a Fish Checkup before reinstalling. Operational Health gives a 6-axis radar chart, per-plugin token donut breakdown, and live memory plugin status; Wellbeing crafts an illustrated personality card, recent topics, and curiosity quiz; Isolated Deep Checkup tests context retention, instruction following, and in-session updates without touching real memory. Read-only by default and follows Coo's light/dark theme."
       }
     }
   },
@@ -71,5 +76,5 @@
     "node": ">=22"
   },
   "license": "MIT",
-  "description": "运行健康包含总览、Token 消耗、记忆状态与上下文适配；心理健康保留性格名片、情境依据、五项指标与奇遇小测。深度体检需要显式宿主适配，未接入时保持禁用。方法说明可从页面右上方打开。"
+  "description": "她最近是跑得慢了，还是心思变了？先别急着重装，做一次「鱼鱼体检」。① 运行健康：六维雷达图看稳定性、速度、缓存、上下文、交接与记忆，自带各插件 Token 消耗环形饼图与记忆插件实时监测，谁最烧 Token、哪段记忆在漏一眼看清；② 心理健康：专属小鱼插画名片、口语化性格侧写、近期常聊话题与娱乐小本本，陪你重新认识她；③ 隔离深度体检：独立合成测试检验上下文保持、指令遵循与会话内事实更新，不写入主会话、不污染记忆。日常只读不改配置，明暗主题跟着 Coo 走。"
 }

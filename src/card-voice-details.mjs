@@ -83,14 +83,14 @@ export function buildCardDetails({ stats, activity, emotion, entries, recent, qu
   }
   const topic = activity?.topics?.find(({ id }) => !NOISE_TOPICS.has(id));
   if (topic) {
-    add('topic', 49, ['一只有常聊话题的小鱼', `聊起「${topic.zh}」，她可不只提过一回。`,
+    add('topic', 49, ['一只有常聊话题的小鱼', `她最近总爱聊「${topic.zh}」。`,
       `从她发出的消息看，「${topic.zh}」是这段时间反复聊到的话题。`, ['话题常客']], '跨天发出消息');
   }
   const memoryTopic = entries?.recalledTopics?.find(({ id }) => !NOISE_TOPICS.has(id))
     ?? entries?.profileTopics?.find(({ id }) => !NOISE_TOPICS.has(id));
   if (entries?.profileCount >= 15 && entries.profileDays >= 3) {
     add('memory', 39, ['一只喜欢给日常留一笔的小鱼', '过日子的时候，她还悄悄攒着一本小本子。',
-      memoryTopic ? `她的小本子里，「${memoryTopic.zh}」可不只出现过一回。` : '她习惯给日常留一页，过几天又给小本子添点东西。',
+      memoryTopic ? `她把「${memoryTopic.zh}」记进小本子好几次了。` : '她习惯给日常留一页，过几天又给小本子添点东西。',
       ['爱记小本本', '便签控']], '跨天记忆记录');
   }
   if (emotion?.count >= 15 && emotion.profileDays >= 3 && emotion.arousalSd <= .12) {

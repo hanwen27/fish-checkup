@@ -19,18 +19,39 @@ export const DEEP_DISCLOSURE = [
   '结果用途与记录：结论只描述本次模型、配置和少量合成样本，不保证日常使用表现，不直接推荐修改上下文或记忆插件。字符档不是 Token 窗口。仅在本插件数据目录保留最近一轮题号、判定与运行计量，不保存原始提示、回答或真实用户内容；导出文件请自行妥善保管。',
 ];
 
-// DC-0.1 sends synthetic messages directly; no native or plugin memory adapters are used.
-export function deepMemoryScope() {
+// DC-0.1 sends synthetic messages directly; host inventory is surfaced when available.
+export function deepMemoryScope(inventory = null) {
+  const rows = Array.isArray(inventory?.rows) ? inventory.rows : [];
+  const hasInventory = inventory?.status === 'ready' && rows.length > 0;
+  const memRows = rows.filter((r) => /memory|brain|fishtools|fishbrain|continuity|记忆|鱼脑/i.test(`${r.id ?? ''} ${r.name ?? ''} ${r.label ?? ''} ${r.description ?? ''}`));
+  const thirdPartyTarget = hasInventory
+    ? {
+      id: 'third-party',
+      name: '已识别记忆相关插件',
+      status: memRows.length ? `已发现 ${memRows.length} 个（总扩展 ${rows.length} 个）` : `已扫描 ${rows.length} 个扩展（未发现专用记忆插件）`,
+      detail: memRows.length
+        ? memRows.map((r) => `${r.label || r.id || r.name}${r.version ? ` v${r.version}` : ''}（${r.enabled === true ? '已启用' : r.enabled === false ? '未启用' : '状态未知'}）`).join('、') + '。深度体检以隔离模式运行，不写入真实记忆。'
+        : '已通过本机宿主清单完成扫描；深度体检以隔离模式运行，不读写第三方插件记忆。',
+    }
+    : {
+      id: 'third-party',
+      name: '第三方记忆插件',
+      status: '未扫描 · 无法判定',
+      detail: '当前体检接口没有读取宿主扩展清单，因此不知道已安装或启用哪些插件，也未调用任何插件记忆接口；不能据此判断有没有安装。',
+    };
   return {
     testedMemorySystemCount: 0,
-    inventoryStatus: 'not-inspected',
+    inventoryStatus: hasInventory ? 'ready' : 'not-inspected',
     targets: [
-      { id: 'coo-native', name: 'COO 原生记忆', status: '未检测',
-        detail: '未调用原生记忆读写接口；录入、召回、跨会话保存和清理均未验证。' },
-      { id: 'third-party', name: '第三方记忆插件', status: '未扫描 · 无法判定',
-        detail: '当前体检接口没有读取宿主扩展清单，因此不知道已安装或启用哪些插件，也未调用任何插件记忆接口；不能据此判断有没有安装。' },
+      { id: 'coo-native', name: 'COO 原生记忆', status: hasInventory ? '隔离不写入' : '未检测',
+        detail: hasInventory
+          ? '深度体检采用纯隔离合成请求，不读写你的真实原生记忆或主会话记录。'
+          : '未调用原生记忆读写接口；录入、召回、跨会话保存和清理均未验证。' },
+      thirdPartyTarget,
     ],
-    explanation: '已检测记忆系统：0 个。会话内事实更新仅检查同一请求中的合成消息，不经过原生或插件记忆链路；该项通过不能证明跨会话能记住。',
+    explanation: hasInventory
+      ? `已通过本机清单识别 ${rows.length} 个扩展（记忆相关 ${memRows.length} 个）。本轮深度体检仅测试隔离上下文与指令保持，不污染真实记忆。`
+      : '已检测记忆系统：0 个。会话内事实更新仅检查同一请求中的合成消息，不经过原生或插件记忆链路；该项通过不能证明跨会话能记住。',
   };
 }
 
@@ -176,6 +197,8 @@ export class DeepCheckup {
     if (!this.executor) return { ready: false, blockers: ['isolated-executor-unavailable'], model: this.model(), contextWindow: this.contextWindow(), dataScope: null };
     try {
       const value = this.executor.inspect();
+      if (Array.isArray(value?.blockers) && value.blockers.length) return { ready: false, blockers: value.blockers,
+        model: value.model || this.model(), contextWindow: value.contextWindow || this.contextWindow(), dataScope: value.dataScope ?? null };
       const blockers = [];
       for (const key of CAPABILITIES) if (value?.capabilities?.[key] !== true) blockers.push(`capability-${key}`);
       if (typeof value?.model !== 'string' || !value.model.trim() || value.model.length > 200) blockers.push('model-unavailable');
@@ -183,7 +206,7 @@ export class DeepCheckup {
       if (!integer(value?.contextWindow) || value.contextWindow < 512) blockers.push('context-window-unavailable');
       if (typeof value?.dataScope !== 'string' || !value.dataScope || value.dataScope.length > 1000) blockers.push('data-scope-unavailable');
       return { ready: !blockers.length, blockers, model: value?.model ?? null, contextWindow: value?.contextWindow ?? null,
-        fingerprint: digest(value), dataScope: value?.dataScope ?? null };
+        fingerprint: digest(value), endpoint: value?.endpoint ?? null, dataScope: value?.dataScope ?? null };
     } catch {
       return { ready: false, blockers: ['executor-inspection-failed'], model: null, contextWindow: null, dataScope: null };
     }

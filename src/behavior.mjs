@@ -11,6 +11,8 @@
  * 样本不足就返回 null，不猜、不外推。
  */
 
+import { DECISION_LENGTH_LABEL } from './text.mjs';
+
 const MIN_DECISIONS = 50;
 const MIN_ENTRIES = 50;
 
@@ -52,13 +54,13 @@ export function axisEI(memory) {
   return {
     axis: 'EI',
     score: r1(score),
-    note: `非静默判断占比 ${Math.round(speak * 100)}%，记录长度中位数 ${r1(len)} 字。`,
+    note: `非静默判断占比 ${Math.round(speak * 100)}%，${DECISION_LENGTH_LABEL} ${r1(len)} 字。`,
     evidence: [
       { label: '有效判断', value: String(d.total) },
       { label: '全部判断', value: String(d.judgedTotal ?? d.total) },
       { label: '系统拦截', value: String(d.blockedCount ?? 0), hint: '已从性格判断样本中排除' },
       { label: '非静默判断占比', value: `${Math.round(speak * 100)}%`, hint: '未核验每条消息是否成功发出' },
-      { label: '记录长度中位数', value: `${r1(len)} 字` },
+      { label: DECISION_LENGTH_LABEL, value: `${r1(len)} 字` },
       { label: '群聊判断被点名比例', value: Number.isFinite(d.addressedRate) ? `${Math.round(d.addressedRate * 100)}%` : '—' },
     ],
   };
@@ -109,7 +111,7 @@ export function axisTF(memory) {
   const e = memory?.entries;
   const d = memory?.decisions;
   const hasEmo = emo && emo.count >= 20 && Number.isFinite(emo.arousalSd);
-  const hasVal = e && e.total >= MIN_ENTRIES && Number.isFinite(e.valenceNonZeroRatio);
+  const hasVal = (e?.valenceCount ?? e?.total) >= MIN_ENTRIES && Number.isFinite(e?.valenceNonZeroRatio);
   if (!hasEmo && !hasVal) {
     return { axis: 'TF', score: null, note: '情绪序列与条目都不够，判不了。', evidence: [] };
   }
@@ -125,16 +127,16 @@ export function axisTF(memory) {
   let score = (1 - fLean) * 100;
   const conf = Number.isFinite(d?.avgConf) ? d.avgConf : null;
   if (conf !== null) score = score * 0.8 + Math.max(0, Math.min(1, conf)) * 20;
+  const nonNeutral = hasVal ? `${Math.round(e.valenceNonZeroRatio * 100)}%` : null;
+  const notes = [hasEmo && `情绪唤醒波动 ${r1(emo.arousalSd)}`, nonNeutral && `已标注情绪的记忆中，非中性占 ${nonNeutral}`];
   return {
     axis: 'TF',
     score: r1(Math.max(0, Math.min(100, score))),
-    note: hasEmo
-      ? `情绪唤醒波动 ${r1(emo.arousalSd)}，条目里带情绪的占 ${hasVal ? Math.round(e.valenceNonZeroRatio * 100) : '—'}%。`
-      : `条目里带情绪的占 ${hasVal ? Math.round(e.valenceNonZeroRatio * 100) : '—'}%。`,
+    note: `${notes.filter(Boolean).join('，')}。`,
     evidence: [
       { label: '情绪采样', value: String(emo?.count ?? 0), hint: '近两周' },
       { label: '唤醒波动', value: hasEmo ? String(r1(emo.arousalSd)) : '—' },
-      { label: '带情绪条目', value: hasVal ? `${Math.round(e.valenceNonZeroRatio * 100)}%` : '—' },
+      { label: '非中性记忆（仅已标注情绪）', value: nonNeutral ?? '—' },
       { label: '平均判断置信', value: conf === null ? '—' : String(r1(conf)) },
     ],
   };

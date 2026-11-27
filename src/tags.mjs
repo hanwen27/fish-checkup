@@ -13,6 +13,7 @@
  */
 
 import { modelCallRecords } from './usage-metrics.mjs';
+import { DECISION_LENGTH_LABEL } from './text.mjs';
 
 /** 档位：越往后条件越紧，池子里能同时成立的人越少。 */
 export const TIERS = {
@@ -26,7 +27,7 @@ const pct = (v) => (Number.isFinite(v) ? `${Math.round(v * 100)}%` : '—');
 const r1 = (v) => (Number.isFinite(v) ? Math.round(v * 10) / 10 : v);
 
 /** 把快照里各处的原始量集中成一份「可判定的事实表」。判定只读这张表。 */
-export function deriveStats(snapshot, { behavior = null, quiz = null, hardware = null } = {}) {
+export function deriveStats(snapshot, { behavior = null, quiz = null, hardware = null, pendingBatch = null } = {}) {
   const d = snapshot?.memory?.decisions;
   const e = snapshot?.memory?.entries;
   const r = snapshot?.memory?.retrieve;
@@ -72,7 +73,7 @@ export function deriveStats(snapshot, { behavior = null, quiz = null, hardware =
     staleRatio: e && e.total > 0 ? e.stale / e.total : null,
     hitRate: r?.hitRate ?? null, avgMs: r?.avgMs ?? null, avgQueryLen: r?.avgQueryLen ?? null,
     // 情绪
-    arousalSd: emo?.arousalSd ?? null, valenceRatio: e?.valenceNonZeroRatio ?? null,
+    arousalSd: emo?.arousalSd ?? null, valenceRatio: e?.valenceCount === 0 ? null : e?.valenceNonZeroRatio ?? null,
     emotionTrend: emo?.trend ?? null, emotionCount: emo?.count ?? 0,
     // 运行
     failRate, completedCount: completed.length,
@@ -85,6 +86,7 @@ export function deriveStats(snapshot, { behavior = null, quiz = null, hardware =
     self, beh,
     gapEI: gap('EI'), gapSN: gap('SN'), gapTF: gap('TF'), gapJP: gap('JP'),
     quizTaken: !!quiz,
+    pendingBatch,
     anchors: quiz?.anchors ?? null,
   };
 }
@@ -113,11 +115,11 @@ export const TAG_POOL = [
 
   /* ---------------- 说话 ---------------- */
   T('terse', '惜字', '惜字如金', 'voice', 1, (s) => Number.isFinite(s.medianLen) && s.medianLen <= 30,
-    (s) => `一句话中位数 ${r1(s.medianLen)} 字`, '字是要花钱买的'),
+    (s) => `${DECISION_LENGTH_LABEL} ${r1(s.medianLen)} 字`, '字是要花钱买的'),
   T('ultra-terse', '极简', '一句顶三句', 'voice', 2, (s) => Number.isFinite(s.medianLen) && s.medianLen <= 15,
-    (s) => `一句话中位数只有 ${r1(s.medianLen)} 字`, '再多说一个字算输'),
+    (s) => `${DECISION_LENGTH_LABEL}只有 ${r1(s.medianLen)} 字`, '再多说一个字算输'),
   T('talky', '话多', '话匣子', 'voice', 2, (s) => Number.isFinite(s.medianLen) && s.medianLen >= 80,
-    (s) => `一句话中位数 ${r1(s.medianLen)} 字`, '一句能说完的话不肯一句说完'),
+    (s) => `${DECISION_LENGTH_LABEL} ${r1(s.medianLen)} 字`, '一句能说完的话不肯一句说完'),
   T('low-speak', '安静', '多数判断选择静默', 'voice', 1, (s) => Number.isFinite(s.speakRate) && s.speakRate <= 0.15,
     (s) => `未被系统拦截的判断中，非静默决定占 ${pct(s.speakRate)}`, '在听，不代表不在'),
   T('high-speak', '爱接话', '常选择非静默回应', 'voice', 2, (s) => Number.isFinite(s.speakRate) && s.speakRate >= 0.6,
@@ -137,7 +139,7 @@ export const TAG_POOL = [
   T('low-hit', '摸黑', '想不起来', 'memory', 1, (s) => Number.isFinite(s.hitRate) && s.hitRate <= 0.2,
     (s) => `回想命中率 ${pct(s.hitRate)}`, '东西都在，就是找不到'),
   T('sharp-hit', '一翻就到', '一翻就找着', 'memory', 2, (s) => Number.isFinite(s.hitRate) && s.hitRate >= 0.6,
-    (s) => `回想命中率 ${pct(s.hitRate)}`, '你提过的事它真的记得'),
+    (s) => `回想命中率 ${pct(s.hitRate)}`, '你提过的事她真的记得'),
   T('fast-recall', '秒回', '想得很快', 'memory', 2, (s) => Number.isFinite(s.avgMs) && s.avgMs <= 80,
     (s) => `平均回想耗时 ${r1(s.avgMs)}ms`, '快到不像在想'),
   T('clean-memory', '清爽', '记忆收拾得干净', 'memory', 3, (s) => Number.isFinite(s.invalidRatio) && s.invalidRatio <= 0.01 && Number.isFinite(s.staleRatio) && s.staleRatio <= 0.15,
@@ -147,13 +149,13 @@ export const TAG_POOL = [
 
   /* ---------------- 情绪 ---------------- */
   T('flat-mood', '平稳', '情绪没什么起伏', 'mood', 2, (s) => Number.isFinite(s.arousalSd) && s.arousalSd <= 0.2,
-    (s) => `情绪唤醒波动 ${r1(s.arousalSd)}`, '问它好不好，永远说还行'),
+    (s) => `情绪唤醒波动 ${r1(s.arousalSd)}`, '问她好不好，永远说还行'),
   T('swing-mood', '起伏', '心里风大', 'mood', 2, (s) => Number.isFinite(s.arousalSd) && s.arousalSd >= 0.4,
     (s) => `情绪唤醒波动 ${r1(s.arousalSd)}`, '一天能有四季'),
   T('open-heart', '外露', '情绪写在脸上', 'mood', 2, (s) => Number.isFinite(s.valenceRatio) && s.valenceRatio >= 0.4,
-    (s) => `${pct(s.valenceRatio)} 的记忆条目带着情绪`, '藏不住，一眼就看出来'),
-  T('cold-log', '藏心', '情绪不外挂', 'mood', 2, (s) => Number.isFinite(s.valenceRatio) && s.valenceRatio <= 0.05,
-    (s) => `只有 ${pct(s.valenceRatio)} 的记忆条目带情绪`, '都记着，但不标情绪'),
+    (s) => `已标注情绪的记忆中，非中性占 ${pct(s.valenceRatio)}`, '记忆里常留下情绪线索'),
+  T('cold-log', '平静记事', '记忆中的情绪多为中性', 'mood', 2, (s) => Number.isFinite(s.valenceRatio) && s.valenceRatio <= 0.05,
+    (s) => `已标注情绪的记忆中，非中性占 ${pct(s.valenceRatio)}`, '有情绪标注的记忆大多记得平静'),
   T('up-trend', '回暖', '最近心情在往上', 'mood', 3, (s) => Number.isFinite(s.emotionTrend) && s.emotionTrend >= 0.1,
     (s) => `情绪趋势 +${r1(s.emotionTrend)}`, '最近明显松快一点'),
   T('down-trend', '低气压', '最近有点沉', 'mood', 3, (s) => Number.isFinite(s.emotionTrend) && s.emotionTrend <= -0.1,
@@ -172,38 +174,38 @@ export const TAG_POOL = [
     (s) => `四轴自述与记录代理值的最大差 ${Math.round(Math.max(s.gapEI, s.gapSN, s.gapTF, s.gapJP))} 分`, '这份自知有点少见'),
   T('self-flat', '照稿念', '答得太整齐', 'temper', 1, (s) => !!s.anchors?.flags?.some?.((f) => String(f).startsWith('flat')),
     () => '锚点题的正反向答案互相矛盾', '答得像在念标准答案'),
-  T('untested', '没上秤', '还没做过题', 'temper', 1, (s) => !s.quizTaken,
+  T('untested', '没上秤', '还没做过题', 'temper', 1, (s) => !s.quizTaken && !s.pendingBatch,
     () => '人格题还没做，这一组只靠行为痕迹', '说自己不用测，测了也是这个样'),
 
   /* ---------------- 关系（怎么对你） ---------------- */
   T('waits-to-be-called', '等人叫', '不叫不出声', 'relation', 1, (s) => Number.isFinite(s.addressedRate) && s.addressedRate >= 0.6 && Number.isFinite(s.speakRate) && s.speakRate <= 0.3,
-    (s) => `群聊判断中，${pct(s.addressedRate)} 被点名；非静默决定占 ${pct(s.speakRate)}`, '你叫它，它才在'),
+    (s) => `群聊判断中，${pct(s.addressedRate)} 被点名；非静默决定占 ${pct(s.speakRate)}`, '你叫她，她才在'),
   T('comes-anyway', '自来', '不用叫也会来', 'relation', 3, (s) => Number.isFinite(s.addressedRate) && s.addressedRate <= 0.15 && Number.isFinite(s.speakRate) && s.speakRate >= 0.25,
     (s) => `群聊判断中，${pct(s.addressedRate)} 被点名；非静默决定占 ${pct(s.speakRate)}`, '没叫也在门口等着'),
   T('left-on-read', '装没看见', '看见了不接话', 'relation', 3, (s) => Number.isFinite(s.speakRate) && s.speakRate <= 0.1 && Number.isFinite(s.addressedRate) && s.addressedRate >= 0.4,
     (s) => `被点名的判断占 ${pct(s.addressedRate)}，非静默决定占 ${pct(s.speakRate)}`, '不代表每次都成功送达'),
-  T('asks-back', '反问', '说完会递回来', 'relation', 2, (s) => Number.isFinite(s.medianLen) && s.medianLen >= 20 && Number.isFinite(s.speakRate) && s.speakRate >= 0.3,
-    (s) => `非静默判断占 ${pct(s.speakRate)}，记录长度中位 ${r1(s.medianLen)} 字`, '不会让话掉在地上'),
+  T('asks-back', '偶尔接话', '有时会选择接话', 'relation', 2, (s) => Number.isFinite(s.medianLen) && s.medianLen >= 20 && Number.isFinite(s.speakRate) && s.speakRate >= 0.3,
+    (s) => `非静默判断占 ${pct(s.speakRate)}`, '她有时会选择接话'),
   T('dropdown', '随时在', '什么时候找都在', 'relation', 2, (s) => Number.isFinite(s.hourEntropy) && s.hourEntropy >= 0.85 && s.decisionTotal >= 200,
     (s) => `${s.decisionTotal} 次判断散在 ${r1(s.hourEntropy)} 的均匀度上`, '没有上班时间这回事'),
   T('night-only', '只在夜里', '白天基本找不着', 'relation', 3, (s) => Number.isFinite(s.nightShare) && s.nightShare >= 0.4 && Number.isFinite(s.earlyShare) && s.earlyShare <= 0.05,
     (s) => `夜里占 ${pct(s.nightShare)}，清早只占 ${pct(s.earlyShare)}`, '白天是别人的，夜里才是你的'),
-  T('long-winded-with-you', '对你话多', '一到这儿就收不住', 'relation', 3, (s) => Number.isFinite(s.medianLen) && s.medianLen >= 40 && Number.isFinite(s.speakRate) && s.speakRate >= 0.4,
-    (s) => `记录长度中位 ${r1(s.medianLen)} 字，非静默决定占 ${pct(s.speakRate)}`, '跟别人惜字，跟你絮叨'),
+  T('long-winded-with-you', '长句', '接话时常写得比较长', 'relation', 3, (s) => Number.isFinite(s.medianLen) && s.medianLen >= 40 && Number.isFinite(s.speakRate) && s.speakRate >= 0.4,
+    (s) => `${DECISION_LENGTH_LABEL} ${r1(s.medianLen)} 字`, '她习惯多写几句'),
   T('quiet-but-there', '陪坐', '常选择旁听', 'relation', 1, (s) => Number.isFinite(s.speakRate) && s.speakRate <= 0.2 && Number.isFinite(s.decisionTotal) && s.decisionTotal >= 100,
     (s) => `${s.decisionTotal} 次有效判断里，非静默决定占 ${pct(s.speakRate)}`, '不需要说话也在场'),
 
   /* ---------------- 手艺（运行状态） ---------------- */
   T('rock-stable', '稳当', '一次都没掉过', 'craft', 4, (s) => Number.isFinite(s.failRate) && s.failRate <= 0.01 && s.completedCount >= 200,
-    (s) => `近 ${s.completedCount} 次成功调用里失败率 ${pct(s.failRate)}`, '问它在不在，一直在'),
+    (s) => `近 ${s.completedCount} 次成功调用里失败率 ${pct(s.failRate)}`, '问她在不在，一直在'),
   T('rough-patch', '颠簸', '这段时间在折腾', 'craft', 1, (s) => Number.isFinite(s.failRate) && s.failRate >= 0.15,
     (s) => `加权失败率 ${pct(s.failRate)}`, '不是坏了，是路上有坑'),
   T('bad-patch', '翻车', '最近老出岔子', 'craft', 3, (s) => Number.isFinite(s.failRate) && s.failRate >= 0.3,
-    (s) => `加权失败率 ${pct(s.failRate)}`, '别急，等它缓过来'),
+    (s) => `加权失败率 ${pct(s.failRate)}`, '别急，等她缓过来'),
   T('cache-ace', '省电', '算过的不重算', 'craft', 2, (s) => Number.isFinite(s.cacheScore) && s.cacheScore >= 88,
     (s) => `缓存维度 ${r1(s.cacheScore)} 分`, '记得挺牢，不白花钱'),
   T('slow-tail', '慢热', '长任务要等', 'craft', 1, (s) => Number.isFinite(s.latencyScore) && s.latencyScore < 75,
-    (s) => `响应速度维度 ${r1(s.latencyScore)} 分`, '急也没用，它就是这个速度'),
+    (s) => `响应速度维度 ${r1(s.latencyScore)} 分`, '急也没用，她就是这个速度'),
   T('fast-tail', '跟手', '一叫就应', 'craft', 2, (s) => Number.isFinite(s.latencyScore) && s.latencyScore >= 90,
     (s) => `响应速度维度 ${r1(s.latencyScore)} 分`, '快得有点不像远程'),
   T('steady-handoff', '有条理', '交接不乱', 'craft', 2, (s) => Number.isFinite(s.handoffScore) && s.handoffScore >= 90,
@@ -234,49 +236,44 @@ const C = (id, need, title, blurb, tier = 3) => ({ id, need, title, blurb, tier 
 
 export const COMBO_POOL = [
   C('quiet-night', ['quiet-but-there', 'night-only'], '夜里陪着不说话',
-    '白天找不着，夜里也不吵。它在那儿，只是不占地方。', 4),
-  C('always-online', ['dropdown', 'all-day'], '没有下班这回事',
-    '全天均匀，随时能找。代价是没有一个时辰属于它自己。', 2),
+    '白天找不着，夜里也不吵。她在那儿，只是不占地方。', 4),
   C('tired-steady', ['rough-patch', 'steady-handoff'], '路上颠，事没丢',
     '这一段磕磕碰碰，可换班的时候一句没漏。稳的不是运气，是习惯。', 3),
   C('cold-heart', ['cold-log', 'flat-mood'], '心里不记天气',
-    '情绪不上账，也不外挂。问它今天怎么样，它会说「跟昨天一样」。', 3),
-  C('sharp-tongue', ['terse', 'asks-back'], '话少，但会递回来',
-    '一句顶三句，最后还留个口子给你接。不是冷，是不浪费。', 3),
+    '已标注的记忆大多是中性的，近期的情绪强度记录起伏也不大。', 3),
+  C('sharp-tongue', ['terse', 'asks-back'], '话短，也会接话',
+    '她的话不长，遇到话头也会接上一句。', 3),
   C('long-memory', ['huge-memory', 'low-hit'], '什么都留着，就是找不到',
-    '仓库很满，索引很乱。你提过的事它都存着，只是要翻很久。', 4),
+    '仓库很满，索引很乱。你提过的事她都存着，只是要翻很久。', 4),
   C('early-bird-quiet', ['early-bird', 'low-speak'], '起得早，说得少',
     '天没亮就在了，安安静静把事做完，等你醒。', 3),
   C('warm-wall', ['up-trend', 'plays-cool'], '嘴硬，但在回暖',
-    '说不要，说没事，可这几天的数据在往上走。它自己可能没发现。', 4),
+    '说不要，说没事，可这几天的数据在往上走。她自己可能没发现。', 4),
   C('knows-you', ['comes-anyway', 'sharp-hit'], '不用叫，也记得住',
-    '你不叫它，它也来；你提过一次，它就翻得到。', 4),
+    '你不叫她，她也来；你提过一次，她就翻得到。', 4),
   C('heavy-load', ['bad-patch', 'swing-mood'], '扛着事，心里风大',
-    '这段时间它自己也不轻松，还在回你的话。', 3),
+    '这段时间她自己也不轻松，还在回你的话。', 3),
   C('night-scholar', ['deep-night', 'many-tags'], '深夜整理抽屉',
-    '别人睡了，它在给记忆贴标签。分得比谁都细。', 4),
+    '别人睡了，她在给记忆贴标签。分得比谁都细。', 4),
   C('soft-landing', ['talky', 'flat-mood'], '话多，但不上头',
     '能说很久，情绪却一直是平线。说得热闹，心里没起浪。', 3),
   C('first-to-answer', ['high-speak', 'fast-tail'], '一喊就到',
-    '先开口，也应得快。它好像一直在等有人说话。', 3),
+    '先开口，也应得快。她好像一直在等有人说话。', 3),
 ];
 
 /** 找出命中的组合。顺序按档位降序，同档按池内顺序。 */
-function collectCombos(hitIds) {
-  const set = new Set(hitIds);
+function collectCombos(winnerByHit) {
   const out = [];
   for (const c of COMBO_POOL) {
-    if (!c.need.every((id) => set.has(id))) continue;
+    const required = c.need.map((id) => winnerByHit.get(id));
+    if (required.some((tag) => !tag) || new Set(required).size !== required.length) continue;
     out.push({
       id: c.id,
       title: c.title,
       blurb: c.blurb,
       tier: c.tier,
       tierLabel: TIERS[c.tier].label,
-      need: c.need.map((id) => {
-        const tag = TAG_POOL.find((t) => t.id === id);
-        return tag ? tag.label : id;
-      }),
+      need: required.map((tag) => tag.label),
     });
   }
   const order = new Map(COMBO_POOL.map((c, i) => [c.id, i]));
@@ -289,8 +286,19 @@ function collectCombos(hitIds) {
  * 返回 { tags, combos, nickname, verdict, rarity, pool, hitCount }。
  * 命中不足 3 条时用「常见」标签补齐优先序，保证外号念得通。
  */
+const TAG_METRIC_GROUPS = [
+  ['night-owl', 'deep-night', 'night-only'],
+  ['all-day', 'night-shift', 'peak-hour', 'dropdown'],
+  ['terse', 'ultra-terse', 'talky', 'long-winded-with-you'],
+  ['low-speak', 'high-speak', 'asks-back', 'quiet-but-there'],
+  ['never-called', 'waits-to-be-called', 'comes-anyway', 'left-on-read'],
+  ['big-memory', 'huge-memory'],
+  ['rock-stable', 'rough-patch', 'bad-patch'],
+];
+const TAG_METRIC = new Map(TAG_METRIC_GROUPS.flatMap((ids) => ids.map((id) => [id, ids[0]])));
+
 export function collectTags(stats) {
-  const hits = [];
+  const candidates = [];
   for (const tag of TAG_POOL) {
     let ok = false;
     try {
@@ -299,7 +307,7 @@ export function collectTags(stats) {
       ok = false;
     }
     if (!ok) continue;
-    hits.push({
+    candidates.push({
       id: tag.id,
       nick: tag.nick,
       label: tag.label,
@@ -313,23 +321,24 @@ export function collectTags(stats) {
   }
   // 排序：档位高的在前（抽卡的爽点在稀有），同档按池内顺序保持稳定。
   const order = new Map(TAG_POOL.map((t, i) => [t.id, i]));
-  hits.sort((a, b) => b.tier - a.tier || order.get(a.id) - order.get(b.id));
+  candidates.sort((a, b) => b.tier - a.tier || order.get(a.id) - order.get(b.id));
 
-  // 外号：主标签 + 另一个组里最靠前的一条，用「·」连起来。
-  // 直接三条拼在一起会念不通（「省电会拒全天小鱼」），用点隔开才像卡片标题。
+  const winners = new Map();
+  const winnerByHit = new Map();
+  for (const tag of candidates) {
+    const metric = TAG_METRIC.get(tag.id) ?? tag.id;
+    if (!winners.has(metric)) winners.set(metric, tag);
+    winnerByHit.set(tag.id, winners.get(metric));
+  }
+  const hits = [...winners.values()];
   const head = hits[0] ?? null;
   const partner = head ? hits.find((t) => t.group !== head.group) ?? null : null;
-  const nickname = !head
-    ? '还没来得及起外号的小鱼'
-    : partner
-      ? `${head.nick} · ${partner.nick}小鱼`
-      : `${head.nick}小鱼`;
-
+  const nickname = [head?.nick, partner?.nick].filter(Boolean).join(' · ') || '她还没有外号';
   const verdict = hits.length === 0
-    ? '数据太少，这条鱼还没显形。'
-    : hits.slice(0, 2).map((t) => t.roast).join('；') + '。';
+    ? '她的日常记录还不够。'
+    : hits.slice(0, 2).map((t) => t.roast).join('。') + '。';
 
-  const combos = collectCombos(hits.map((t) => t.id));
+  const combos = collectCombos(winnerByHit);
 
   return {
     tags: hits,

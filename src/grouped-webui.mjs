@@ -23,7 +23,7 @@ export function makeGroupedPanel(baseId, panels) {
     if (baseId === 'hardware') {
       for (const [key, label] of [
         ['hardware', zh ? '总览' : 'Overview'], ['tokens', zh ? 'Token 消耗' : 'Token usage'],
-        ['memory-coverage', zh ? '记忆状态' : 'Memory status'], ['context-fit', zh ? '上下文适配' : 'Context fit']
+        ['memory-coverage', zh ? '记忆状态' : 'Memory status']
       ]) {
         const button = el('button', 'sc-group-tab', label); button.type = 'button';
         button.id = `${id}-${key}`; button.setAttribute('role', 'tab');

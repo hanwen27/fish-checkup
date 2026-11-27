@@ -80,7 +80,7 @@ export function takeBatch(quiz, batch, { now = new Date(), timeZone = 'Asia/Shan
 function resolveAnswers(quiz, answered, { now, timeZone }) {
   const day = dayKey(now, timeZone);
   const byId = new Map((quiz?.items ?? []).map((it) => [it.id, it]));
-  const out = [];
+  const out = new Map();
   for (const a of answered ?? []) {
     const item = byId.get(a?.id);
     if (!item) continue;
@@ -99,9 +99,9 @@ function resolveAnswers(quiz, answered, { now, timeZone }) {
       usedKey = picked ? String.fromCharCode(97 + shuffled.indexOf(picked)) : '';
     }
     if (!picked) continue;
-    out.push({ item, picked, key: usedKey });
+    out.set(item.id, { item, picked, key: usedKey });
   }
-  return out;
+  return [...out.values()];
 }
 
 /**
@@ -114,7 +114,30 @@ function resolveAnswers(quiz, answered, { now, timeZone }) {
  *   answered / total
  */
 export function scoreQuiz(quiz, answered, { now = new Date(), timeZone = 'Asia/Shanghai' } = {}) {
-  const resolved = resolveAnswers(quiz, answered, { now, timeZone });
+  return scoreResolved(quiz, resolveAnswers(quiz, answered, { now, timeZone }));
+}
+
+export function pendingQuizBatch(state) {
+  const first = Boolean(state?.batch1?.answers?.length);
+  const second = Boolean(state?.batch2?.answers?.length);
+  return first === second ? null : first ? 2 : 1;
+}
+
+export function quizResultForState(state, language = 'zh', now = new Date()) {
+  if (!state?.batch1 && !state?.batch2) return state?.result ?? null;
+  if (!state.batch1?.answers?.length || !state.batch2?.answers?.length) return null;
+  if (state.result) return state.result;
+  const quiz = loadQuiz(language);
+  const resolveBatch = ({ answers, at }, batch) => resolveAnswers(quiz, answers, {
+    now: Number.isFinite(at) ? new Date(at) : now,
+    timeZone: 'Asia/Shanghai',
+  }).filter(({ item }) => item.batch === batch);
+  const first = resolveBatch(state.batch1, 1);
+  const second = resolveBatch(state.batch2, 2);
+  return first.length && second.length ? scoreResolved(quiz, [...first, ...second]) : null;
+}
+
+function scoreResolved(quiz, resolved) {
   const axisItems = resolved.filter((r) => (r.item.kind ?? 'axis') === 'axis');
   const anchorItems = resolved.filter((r) => r.item.kind === 'anchor');
 
@@ -177,21 +200,22 @@ export function scoreQuiz(quiz, answered, { now = new Date(), timeZone = 'Asia/S
  * 只算两次都答了的 pair。
  */
 export function scoreAnchors(anchorItems) {
+  const ORDER = { hi: 2, mid: 1, lo: 0 };
   const byPair = new Map();
   for (const { item, picked } of anchorItems) {
     const pair = item.pair ?? item.id;
     const side = picked?.side;
-    if (!side) continue;
-    if (!byPair.has(pair)) byPair.set(pair, []);
-    byPair.get(pair).push(side);
+    if (!Object.hasOwn(ORDER, side)) continue;
+    if (!byPair.has(pair)) byPair.set(pair, new Map());
+    byPair.get(pair).set(item.id, ORDER[side]);
   }
-  const ORDER = { hi: 2, mid: 1, lo: 0 };
   let pairs = 0;
   let sum = 0;
   for (const sides of byPair.values()) {
-    if (sides.length < 2) continue;
+    if (sides.size < 2) continue;
     pairs += 1;
-    const d = Math.abs(ORDER[sides[0]] - ORDER[sides[1]]);
+    const [first, second] = sides.values();
+    const d = Math.abs(first - second);
     sum += d === 0 ? 1 : d === 1 ? 0.5 : 0;
   }
   return { pairs, agreeRate: pairs > 0 ? sum / pairs : null };
@@ -226,7 +250,7 @@ export function scoreCreative(quiz, responses) {
   if (hasConcrete) tags.push('脑海里有画面');
   if (tags.length === 0) tags.push('惜字如金但有自己的想法');
   const first = rows[0].response;
-  const blurb = `她给世界添了 ${rows.length} 个小场景，${tags.slice(0, 2).join('，')}。这只小鱼的答案，像一张还没收起来的画。`;
+  const blurb = `她给世界添了 ${rows.length} 个小场景，${tags.slice(0, 2).join('，')}。她的答案像一张还没收起来的画。`;
   return { taken: true, responses: rows, tags, blurb, first: first.slice(0, 80) };
 }
 
@@ -276,7 +300,7 @@ export const TYPE_BLURBS = {
 /**
  * 自评 vs 行为的逐轴对比。
  * 每轴取差值绝对值，返回 { perAxis:[{axis,self,behavior,delta}], meanDelta, verdict }。
- * 缺轴的项不参与平均。
+ * 四轴都可比时才计算总体平均。
  */
 export function compareAxes(selfAxes, behaviorAxes) {
   const perAxis = AXIS_IDS.map((id) => {
@@ -286,7 +310,7 @@ export function compareAxes(selfAxes, behaviorAxes) {
     return { axis: id, self, behavior: beh, delta };
   });
   const deltas = perAxis.filter((a) => a.delta !== null).map((a) => a.delta);
-  const meanDelta = deltas.length > 0 ? deltas.reduce((a, b) => a + b, 0) / deltas.length : null;
+  const meanDelta = deltas.length === AXIS_IDS.length ? deltas.reduce((a, b) => a + b, 0) / deltas.length : null;
   let verdict = null;
   if (meanDelta !== null) {
     if (meanDelta <= 15) verdict = { key: 'aligned', text: '说的和做的基本一致' };

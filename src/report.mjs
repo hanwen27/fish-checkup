@@ -6,12 +6,12 @@
 import { runHardware, summarize } from './hardware.mjs';
 import { runBehavior } from './behavior.mjs';
 import { buildProfile } from './profile.mjs';
-import { loadQuiz, scoreQuiz, compareAxes } from './quiz.mjs';
-import { buildSummary, buildConsistency } from './summary.mjs';
+import { compareAxes } from './quiz.mjs';
+import { buildSummary, buildConsistency, buildPersonalityConclusion } from './summary.mjs';
 import { dimensionGuide } from './hardware-guide.mjs';
 import { explainCalibration } from './scale.mjs';
 import { deriveStats, collectTags } from './tags.mjs';
-import { DIM_TITLES, DIM_FORMULAS, LEVELS, STATES, pick } from './text.mjs';
+import { DIM_TITLES, DIM_FORMULAS, LEVELS, STATES, UI, pick } from './text.mjs';
 
 /**
  * @param {object} snapshot  collect.mjs 的产物
@@ -20,6 +20,7 @@ import { DIM_TITLES, DIM_FORMULAS, LEVELS, STATES, pick } from './text.mjs';
 export function buildReport(snapshot, {
   contextWindow = null,
   quizResult = null,
+  pendingBatch = null,
   language = 'zh',
   quizTakenAt = null,
   live = null,
@@ -36,35 +37,26 @@ export function buildReport(snapshot, {
 
   const quiz = quizResult ?? null;
   const selfAxes = quiz?.axes ?? { EI: null, SN: null, TF: null, JP: null };
-  const comparison = compareAxes(selfAxes, {
-    EI: behavior.axes[0].score,
-    SN: behavior.axes[1].score,
-    TF: behavior.axes[2].score,
-    JP: behavior.axes[3].score,
-  });
-
-  const behaviorAxes = {
-    EI: behavior.axes[0].score,
-    SN: behavior.axes[1].score,
-    TF: behavior.axes[2].score,
-    JP: behavior.axes[3].score,
-  };
+  const behaviorAxes = Object.fromEntries(behavior.axes.map(({ axis, score }) => [axis, score]));
+  const comparison = compareAxes(selfAxes, behaviorAxes);
+  const anchors = quiz?.anchors;
 
   // 趣味标签：人格这块的主菜。十六型不再作为标题，标签才是。
   // 四轴与一致性降级为「依据」——留着可核对，但不再占首屏。
-  const tagStats = deriveStats(snapshot, { behavior, quiz, hardware });
+  const tagStats = deriveStats(snapshot, { behavior, quiz, hardware, pendingBatch });
   const tagResult = collectTags(tagStats);
 
   const personality = {
     profile: buildProfile(snapshot?.memory, lang, snapshot?.activity, quiz),
     taken: !!quiz,
     takenAt: quizTakenAt,
+    quizProgress: pendingBatch ? UI[lang].quizPending(pendingBatch) : null,
     letters: quiz?.letters ?? null,
     selfAxes,
     behaviorAxes,
     behaviorNotes: behavior.axes.map((a) => ({ axis: a.axis, note: a.note, evidence: a.evidence })),
     comparison,
-    anchors: quiz?.anchors ?? null,
+    anchors: anchors?.pairs === 0 ? { ...anchors, agreeRate: null } : anchors ?? null,
     flags: quiz?.flags ?? [],
     answered: quiz?.answered ?? 0,
     totalItems: quiz?.totalItems ?? 0,
@@ -77,6 +69,7 @@ export function buildReport(snapshot, {
   };
   // 一致性用「人话版」：不说「平均偏差 16.5」，说哪一轴对不上、怎么对不上。
   personality.consistency = buildConsistency(personality, lang);
+  personality.profile.character = buildPersonalityConclusion(personality, lang);
 
   return {
     language: lang,
@@ -142,21 +135,26 @@ export function reportToText(report, { language = report.language, mode = 'detai
     lines.push('');
   }
   const p = report.personality;
-  if (p.profile?.character) {
+  const character = p.profile?.character;
+  if (character) {
     lines.push(zh ? '【性格分析】' : '[Personality observations]');
-    lines.push(p.profile.character.conclusion, p.profile.character.basis);
-    for (const item of p.profile.situations ?? []) {
+    lines.push(character.conclusion, character.basis);
+    for (const item of p.profile?.situations ?? []) {
       lines.push(`  · ${item.context}，${item.choice}（${item.source}）`);
       for (const line of item.lines) lines.push(`    ${line}`);
     }
     lines.push('');
+  }
+  const sentLength = p.profile?.sentLength;
+  if (sentLength && !p.profile.situations?.some(({ lines }) => lines.includes(sentLength))) {
+    lines.push(sentLength, '');
   }
   if (p.profile?.diary?.length) {
     lines.push(zh ? '【最近的她】' : '[Her lately]');
     for (const item of p.profile.diary) lines.push(`  · ${item.title}：${item.summary}`);
     lines.push('');
   }
-  const hasTags = !!(p.tags && p.tags.tags);
+  const hasTags = p.tags?.tags?.length > 0;
   // area=hardware 时人格这半被清空，连标题都不该出现——空标题会让人以为数据丢了。
   if (hasTags || p.taken) {
     lines.push(zh ? '【人格标签】' : '[Trait tags]');
@@ -168,7 +166,7 @@ export function reportToText(report, { language = report.language, mode = 'detai
     for (const t of tags.tags ?? []) {
       lines.push(`  [${t.tierLabel}] ${t.label} —— ${t.evidence}`);
     }
-    lines.push(`  池子 ${tags.pool} 条，这条鱼命中 ${tags.hitCount} 条（常见 ${tags.rarity[1]} / 少见 ${tags.rarity[2]} / 稀有 ${tags.rarity[3]} / 传说 ${tags.rarity[4]}）。`);
+    lines.push(`  池子 ${tags.pool} 条，她命中 ${tags.hitCount} 条（常见 ${tags.rarity[1]} / 少见 ${tags.rarity[2]} / 稀有 ${tags.rarity[3]} / 传说 ${tags.rarity[4]}）。`);
     if (tags.combos?.length) {
       lines.push(`  ${zh ? '组合彩蛋' : 'Combos'}：`);
       for (const c of tags.combos) {
@@ -178,23 +176,25 @@ export function reportToText(report, { language = report.language, mode = 'detai
     }
   }
   if (p.creative?.taken && p.creative.blurb) lines.push(`  ${zh ? '创作彩蛋' : 'Creative'}: ${p.creative.blurb}`);
-  if (!p.taken && hasTags) {
-    lines.push(`  ${zh ? '人格题还没做，上面这些只来自行为痕迹。' : 'No questionnaire yet; tags come from behaviour traces only.'}`);
-  } else if (p.taken) {
-    lines.push('');
-    const fmtAxis = (v) => (v === null || v === undefined ? '?' : Math.round(v));
-    const s = p.selfAxes ?? {};
-    const b = p.behaviorAxes ?? {};
-    lines.push(`  ${zh ? '依据 · 自述' : 'Evidence · self'}  E${fmtAxis(s.EI)} S${fmtAxis(s.SN)} T${fmtAxis(s.TF)} J${fmtAxis(s.JP)}`);
-    lines.push(`  ${zh ? '依据 · 行为' : 'Evidence · behav'} E${fmtAxis(b.EI)} S${fmtAxis(b.SN)} T${fmtAxis(b.TF)} J${fmtAxis(b.JP)}`);
-    if (p.comparison?.verdict) {
-      const delta = p.comparison.meanDelta;
-      const suffix = delta === null || delta === undefined ? '' : ` (${zh ? '平均偏差' : 'mean delta'} ${delta})`;
-      lines.push(`  ${zh ? '一致性' : 'Consistency'}: ${p.comparison.verdict.text}${suffix}`);
-    }
-    if (p.anchors?.agreeRate !== null && p.anchors?.agreeRate !== undefined) {
-      lines.push(`  ${zh ? '锚点一致率' : 'Anchor agreement'}: ${Math.round(p.anchors.agreeRate * 100)}%`);
-    }
+  if (p.quizProgress) lines.push(`  ${p.quizProgress}`);
+  else if (!p.taken && hasTags) {
+    lines.push(`  ${zh ? '她还没做人格题，上面这些来自行为痕迹。' : 'She has not taken the questionnaire yet. Tags come from behaviour traces.'}`);
+  }
+  const formatAxes = ({ EI, SN, TF, JP } = {}) => [EI, SN, TF, JP]
+    .map((score, i) => `${'ESTJ'[i]}${Number.isFinite(score) ? Math.round(score) : '?'}`).join(' ');
+  if (p.taken) lines.push('', `  ${zh ? '依据 · 自述' : 'Evidence · self'}  ${formatAxes(p.selfAxes)}`);
+  if (p.taken || Object.values(p.behaviorAxes ?? {}).some(Number.isFinite)) {
+    lines.push(`  ${zh ? '依据 · 行为' : 'Evidence · behaviour'} ${formatAxes(p.behaviorAxes)}`);
+  }
+  if (p.taken) {
+    const { verdict, meanDelta } = p.comparison ?? {};
+    const consistency = verdict && Number.isFinite(meanDelta)
+      ? `${zh ? verdict.text : p.consistency?.sentence ?? verdict.text}（${zh ? '平均偏差' : 'mean delta'} ${meanDelta}）`
+      : p.consistency?.sentence;
+    if (consistency) lines.push(`  ${UI[lang].consistency}: ${consistency}`);
+    if (p.anchors?.pairs > 0 && Number.isFinite(p.anchors.agreeRate)) {
+      lines.push(`  ${UI[lang].anchors}: ${Math.round(p.anchors.agreeRate * 100)}%`);
+    } else if (p.anchors?.pairs === 0) lines.push(`  ${UI[lang].anchorsPending}`);
     if (p.flags?.length) lines.push(`  ${zh ? '备注' : 'Notes'}: ${p.flags.join(', ')}`);
   }
   if (report.problems?.length) {
@@ -238,16 +238,17 @@ function briefText(report, { language = report.language } = {}) {
       ? '稳定性只统计模型请求结果；这份报告没有核实失败根因，不能单凭分数归因于机器、网络或服务端。'
       : 'Stability reflects model-request outcomes only. This report does not verify root causes or attribute failures to the machine, network, or service.');
   }
-  const profile = report.personality?.profile;
-  if (profile) {
+  const personality = report.personality;
+  if (personality?.profile || personality?.taken || personality?.quizProgress || personality?.tags) {
+    const character = personality.profile?.character;
     lines.push(zh ? '【性格近况】' : '[Personality lately]');
-    if (profile.character) {
-      lines.push(profile.character.conclusion + (zh ? '。' : '.'));
-      lines.push(profile.character.basis + (zh ? '。' : '.'));
-    } else {
+    if (character) {
+      lines.push(zh ? `${character.conclusion}（${character.basis}）。` : `${character.conclusion} (${character.basis}).`);
+    } else if (!personality.quizProgress) {
       lines.push(zh ? '关于性格，这次还需要多一点日常记录。' : 'There are too few recent observations for a personality conclusion.');
     }
-    const note = profile.diary?.[0];
+    if (personality.quizProgress) lines.push(personality.quizProgress);
+    const note = personality.profile?.diary?.[0];
     if (note) lines.push(note.summary);
   }
   return lines.join('\n');

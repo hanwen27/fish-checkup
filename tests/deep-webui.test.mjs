@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { FakeDocument, makeCtx } from './_fake-dom.mjs';
 import { DeepCheckup } from '../src/deep-checkup.mjs';
-import panels from '../dist/webui.js';
+import { makeDeepCheckupPanel } from '../src/deep-webui.mjs';
+const panels = { panels: { 'deep-checkup': makeDeepCheckupPanel() } };
 
 function all(node) { return [node, ...node.children.flatMap(all)]; }
 function control(root, label) { return all(root).find((item) => item.tagName === 'BUTTON' && item.textContent === label); }
@@ -52,7 +53,7 @@ test('report explains results before evidence and keeps prices out of every visi
   assert.ok(ctx.root.textContent.indexOf('结果速读') < ctx.root.textContent.indexOf('分项结果与证据'));
   assert.match(ctx.root.textContent, /对你意味着什么/);
   assert.match(ctx.root.textContent, /记忆检测范围/);
-  assert.match(ctx.root.textContent, /COO 原生记忆 · 未检测/);
+  assert.match(ctx.root.textContent, /COO 原生记忆 · (?:未检测|隔离不写入)/);
   assert.match(ctx.root.textContent, /第三方记忆插件 · 未扫描 · 无法判定/);
   assert.match(ctx.root.textContent, /本轮覆盖/);
   assert.match(ctx.root.textContent, /建议下一步/);

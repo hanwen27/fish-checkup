@@ -220,6 +220,37 @@ const AXIS_PAIRS = [
 
 const AXIS_NAMES = { zh: { EI: '开口', SN: '关注面', TF: '较真', JP: '章法' }, en: { EI: 'speaking', SN: 'focus', TF: 'judgement', JP: 'structure' } };
 
+export function buildPersonalityConclusion(personality, language) {
+  if (personality?.profile?.character) return personality.profile.character;
+  const lang = pick(language);
+  const zh = lang === 'zh';
+  const scoredAxes = (axes) => AXIS_PAIRS.map(([id]) => ({ id, score: axes?.[id] }))
+    .filter(({ score }) => Number.isFinite(score));
+  const self = scoredAxes(personality?.selfAxes);
+  const behavior = scoredAxes(personality?.behaviorAxes);
+  const quizReady = personality?.taken && !personality.flags?.includes('unstable') && self.length >= 3;
+  if (quizReady || behavior.length === AXIS_PAIRS.length) {
+    const axes = quizReady ? self : behavior;
+    const strongest = axes.filter(({ score }) => Math.abs(score - 50) >= 10)
+      .sort((a, b) => Math.abs(b.score - 50) - Math.abs(a.score - 50))[0];
+    const basis = quizReady
+      ? (zh ? '来自她的情境小测自述' : 'Based on her quiz answers')
+      : (zh ? '来自近期行为记录' : 'Based on recent behaviour records');
+    if (!strongest) {
+      return { conclusion: zh ? '她在有结果的性格维度上总体偏均衡' : 'Her measured traits are generally balanced', basis };
+    }
+    const trait = AXIS_WORDS[lang][strongest.id][strongest.score >= 50 ? 'hi' : 'lo'];
+    return { conclusion: zh ? `她${trait}` : `She ${trait}`, basis };
+  }
+
+  const tags = (personality?.tags?.tags ?? []).filter(({ group, id }) => group !== 'craft' && id !== 'untested');
+  if (tags.length < 2) return null;
+  const labels = tags.slice(0, 2).map(({ label }) => label);
+  return zh
+    ? { conclusion: `她近期有两个比较明显的特点：${labels.join('、')}`, basis: '来自体检标签的记录依据' }
+    : { conclusion: `Two traits stand out in her recent records (${labels.join(', ')})`, basis: 'Based on the trait evidence in this report' };
+}
+
 /**
  * 自述 vs 行为，逐轴说人话。
  * 不只报「平均偏差 16.5」——那是个数字，读了不知道该想什么。
@@ -256,17 +287,14 @@ export function buildConsistency(personality, language = 'zh') {
   });
 
   const comparable = rows.filter((r) => r.agree !== null);
-  if (comparable.length === 0) {
-    return {
-      sentence: zh ? '还没有可比的轴——自述和行为侧写至少各缺一边。' : 'Nothing to compare yet — one side is missing.',
-      detail: null,
-      rows,
-      agreeCount: 0,
-      total: 0,
-    };
-  }
-
   const agreeCount = comparable.filter((r) => r.agree).length;
+  if (comparable.length < AXIS_PAIRS.length) {
+    const behaviorMissing = rows.filter(({ behavior }) => Number.isFinite(behavior)).length < AXIS_PAIRS.length;
+    const sentence = behaviorMissing
+      ? (zh ? '暂无法比较（行为维度样本不足）' : 'Comparison unavailable (insufficient behaviour samples)')
+      : (zh ? '暂无法比较（小测维度样本不足）' : 'Comparison unavailable (insufficient self-report samples)');
+    return { sentence, detail: null, rows, agreeCount, total: comparable.length };
+  }
   // 取偏差最大的一轴作为那句话的重点——差异才是可读的部分。
   const widest = [...comparable].sort((a, b) => (b.delta ?? 0) - (a.delta ?? 0))[0];
   const same = comparable.filter((r) => r.agree).map((r) => r.label);

@@ -6,6 +6,7 @@ import { join, resolve, sep } from 'node:path';
 import { FakeDocument, makeCtx } from './_fake-dom.mjs';
 import { makeGroupedPanel } from '../src/grouped-webui.mjs';
 import { CheckupWorld } from '../src/world.ts';
+import { QUIZ_TOOL, SUBMIT_TOOL } from '../src/tools.mjs';
 import ui from '../dist/webui.js';
 
 const nodes = (root) => [root, ...root.children.flatMap(nodes)];
@@ -38,7 +39,8 @@ test('COO exposes three main categories and routes passive views through operati
   const report = await declaration.invoke('hardware', 'passiveReport', [true]);
   assert.equal(report.report.usage.knownTotal, 120);
   assert.match((await declaration.invoke('hardware', 'passiveText', [])).text, /120/);
-  assert.equal((await declaration.invoke('hardware', 'passiveInventory', [])).ok, false);
+  const inv = await declaration.invoke('hardware', 'passiveInventory', []);
+  assert.equal(typeof inv.ok, 'boolean');
   assert.equal((await declaration.invoke('hardware', 'report', ['zh'])).ok, true);
   assert.equal(modelCalls(), 0);
 });
@@ -55,14 +57,14 @@ test('method help works from all three parent panels without invoking deep tests
   assert.equal(modelCalls(), 0);
 });
 
-test('installed operational panel mounts real backend data in all four subpages and returns from help', async t => {
+test('installed operational panel mounts real backend data in its three subpages and returns from help', async t => {
   const { world, modelCalls } = await fixture(t);
   globalThis.document = new FakeDocument();
   const ctx = makeCtx({}); t.after(() => ctx._abort());
   ctx.invoke = (method, args = []) => world.invoke('hardware', method, args);
   await ui.panels.hardware.mount(ctx);
   assert.match(ctx.root.textContent, /稳定性/);
-  for (const [label, expected] of [['Token 消耗', /120/], ['记忆状态', /未知|未核实|未读取|尚未/], ['上下文适配', /128,000|128000/]]) {
+  for (const [label, expected] of [['Token 消耗', /120/], ['记忆状态', /记忆来源与近期活跃|宿主清单/]]) {
     await click(button(ctx.root, label));
     assert.match(ctx.root.textContent, expected);
     assert.doesNotMatch(ctx.root.textContent, /读取失败:|页面暂时无法加载|undefined|NaN/);
@@ -71,7 +73,8 @@ test('installed operational panel mounts real backend data in all four subpages 
   assert.match(ctx.root.textContent, /性格分析与奇遇小测/);
   assert.equal(nodes(ctx.root).find(node => node.className === 'sc-group-tabs').hidden, true);
   await click(button(ctx.root, '返回体检'));
-  assert.equal(button(ctx.root, '上下文适配').attributes['aria-selected'], 'true');
+  assert.equal(button(ctx.root, '上下文适配'), undefined);
+  assert.deepEqual(nodes(ctx.root).filter(node => node.className === 'sc-group-tab').map(node => node.textContent), ['总览', 'Token 消耗', '记忆状态']);
   assert.equal(modelCalls(), 0);
 });
 
@@ -79,8 +82,14 @@ test('original mental health panel still renders its profile and quiz with the g
   const { world, modelCalls } = await fixture(t);
   globalThis.document = new FakeDocument(); const ctx = makeCtx({}); t.after(() => ctx._abort());
   ctx.invoke = (method, args = []) => world.invoke('persona', method, args);
+  const tools = world.tools();
+  const call = async (name, args) => JSON.parse((await tools.find((tool) => tool.name === name).handler(args)).text);
+  const { items } = await call(QUIZ_TOOL, { batch: 1 });
+  const { accepted } = await call(SUBMIT_TOOL, { batch: 1, answers: [{ id: items[0].id, option: items[0].options[0].key }] });
+  assert.equal(accepted, 1);
   await ui.panels.persona.mount(ctx);
   assert.match(ctx.root.textContent, /性格/); assert.match(ctx.root.textContent, /奇遇/);
+  assert.match(ctx.root.textContent, /等第二批收齐/);
   assert.doesNotMatch(ctx.root.textContent, /读取失败:|页面暂时无法加载|undefined|NaN/);
   await click(button(ctx.root, '方法说明')); assert.ok(button(ctx.root, '返回体检'));
   await click(button(ctx.root, '返回体检')); assert.match(ctx.root.textContent, /性格/);

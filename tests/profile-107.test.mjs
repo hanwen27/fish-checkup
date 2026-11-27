@@ -64,13 +64,20 @@ test('World works on native memory, retains quiz state and tracks seen changes a
     mkdirSync(stateDir);
     writeFileSync(join(memoryDir, 'CONSTITUTION.md'), '# Companion');
     writeFileSync(join(memoryDir, 'notes.md'), 'Test workspace');
-    writeFileSync(join(stateDir, 'results.json'), JSON.stringify({ quizMarker: false, creativeRequestedAt: 42 }));
+    writeFileSync(join(stateDir, 'results.json'), JSON.stringify({
+      creativeRequestedAt: 42, takenAt: 42,
+      batch1: { at: 42, answers: [{ id: 'ei1', option: 'a' }] },
+      result: { letters: '????', anchors: { pairs: 0, agreeRate: 1 } },
+    }));
     const options = { cfg: CHECKUP_DEFAULTS, botDir: root, dataDir: root, memoryDir, stateDirOverride: stateDir };
     const world = new CheckupWorld(options);
     await world.start({ log });
     const load = async (instance = world) => (await instance.invoke('persona', 'report', ['zh'])).report;
     const first = await load();
     assert.equal(first.hardware.dimensions.length, 6);
+    assert.equal(first.personality.taken, false);
+    assert.equal(first.personality.takenAt, null);
+    assert.match(first.personality.quizProgress, /等第二批收齐/);
     assert.ok(first.personality.profile.evidence.find(({ id }) => id === 'memory').lines.some((line) => line.includes('Coo')));
     assert.equal(first.personality.profile.hasBaseline, false);
     assert.deepEqual(await world.invoke('persona', 'profileSeen', ['zh', first.personality.profile.seenKey]), { ok: true });
@@ -88,8 +95,10 @@ test('World works on native memory, retains quiz state and tracks seen changes a
     const reopened = new CheckupWorld(options);
     await reopened.start({ log });
     reopened.safeSnapshot = world.safeSnapshot;
-    assert.equal((await load(reopened)).personality.profile.change, null);
-    assert.equal((await load(reopened)).personality.profile.hasBaseline, true);
+    const resumed = (await load(reopened)).personality;
+    assert.equal(resumed.profile.change, null);
+    assert.equal(resumed.profile.hasBaseline, true);
+    assert.match(resumed.quizProgress, /等第二批收齐/);
     await reopened.stop();
     await world.stop();
   } finally {

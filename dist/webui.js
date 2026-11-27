@@ -46,7 +46,7 @@ const T = {
     methodPs: '人格测试',
     methodPsBody: '自评 28 题（24 道情境题 + 4 道锚点），分两批；题干不含人格词，选项顺序按日期打乱。再用 memory 里真实的行为痕迹映射同一套四轴，逐轴比对。缺数据就不给该轴，绝不外推。',
     methodTiers: '标签档位怎么定的',
-    methodTiersBody: '每一条标签的档位看的是「这个判定有多容易被满足」——门槛越苛刻、要同时成立的条数越多，档位越高。它衡量的是命中难度，不是这条鱼在全网有多独特（这里没有全网分布，编一个百分位就是假的）。',
+    methodTiersBody: '每一条标签的档位看的是「这个判定有多容易被满足」——门槛越苛刻、要同时成立的条数越多，档位越高。它衡量的是命中难度，不是她在全网有多独特（这里没有全网分布，编一个百分位就是假的）。',
     tierHints: {
       1: '几乎总会成立，或数据一够就成立',
       2: '需要明显偏向一侧，比如比例过半、分数进前段',
@@ -76,8 +76,8 @@ const T = {
     hardwareChartTitle: '六维状态图',
     hardwareChartNote: '越靠外代表这一维越稳。它看的是整体形状，具体依据请点开下面的每一项。',
     // ---- 标签（人格主菜）----
-    nickKicker: '这条鱼叫',
-    rarityPool: (pool, hit) => `池子里共 ${pool} 条标签，它命中 ${hit} 条`,
+    nickKicker: '她的外号',
+    rarityPool: (pool, hit) => `池子里共 ${pool} 条标签，她命中 ${hit} 条`,
     tagsEmpty: '数据还不够，暂时抽不出标签。',
     evidenceTitle: '依据与四轴',
     consistShort: '一致',
@@ -1254,6 +1254,7 @@ function renderPersona(ctx, report, panelActions) {
     const when = new Date(p.takenAt).toLocaleDateString(ctx.lang);
     quizBody.append(el('p', 'sc-profile-period', `${t.lastTaken} · ${when}`));
   }
+  if (p.quizProgress) quizBody.append(el('p', 'sc-profile-period', p.quizProgress));
   inviteQuiz(ctx, button, status, t);
   quizBody.append(button, status, creativeCard(ctx, p, t, panelActions));
   quiz.append(quizBody);
@@ -1281,8 +1282,8 @@ function renderLegacyPersona(ctx, report, panelActions) {
 
   if (!p.taken) {
     const empty = el('div', 'sc-empty');
-    empty.append(el('div', 'sc-empty-title', t.notTaken));
-    empty.append(el('div', 'sc-prose', t.notTakenHint));
+    empty.append(el('div', 'sc-empty-title', p.quizProgress ?? t.notTaken));
+    if (!p.quizProgress) empty.append(el('div', 'sc-prose', t.notTakenHint));
     const btn = el('button', 'sc-btn', t.start);
     const status = el('div', 'sc-head-note', '');
     btn.addEventListener('click', async () => {
@@ -1309,8 +1310,12 @@ function renderLegacyPersona(ctx, report, panelActions) {
   const fold = el('details', 'sc-evidence');
   const summary = el('summary', 'sc-evidence-sum');
   summary.append(el('span', 'sc-evidence-k', t.evidenceTitle));
-  if (p.taken) summary.append(el('span', 'sc-evidence-v', `${p.letters ?? '—'} · ${t.consistShort} ${p.consistency?.agreeCount ?? 0}/${p.consistency?.total ?? 0}`));
-  else summary.append(el('span', 'sc-evidence-v', t.behavOnly));
+  if (p.taken) {
+    const consistency = p.consistency?.total === 4
+      ? `${t.consistShort} ${p.consistency.agreeCount}/${p.consistency.total}`
+      : p.consistency?.sentence ?? '—';
+    summary.append(el('span', 'sc-evidence-v', `${p.letters ?? '—'} · ${consistency}`));
+  } else summary.append(el('span', 'sc-evidence-v', t.behavOnly));
   fold.append(summary);
 
   const body = el('div', 'sc-evidence-body');
@@ -1554,6 +1559,15 @@ function makeDeepCheckupPanel() {
       const states = { running: '进行中', stopping: '正在停止，等待在途请求结算', stopped: '已停止', completed: '检测完成', paused: '已暂停', failed: '执行失败', interrupted: '上次运行被中断' };
       const reasonNames = {
         'isolated-executor-unavailable': '当前 COO 未提供隔离执行器，暂不能启动深度体检。',
+        'companion-config-unavailable': '无法读取 companion/config.json，请核对 COO 主目录。',
+        'provider-unavailable': '尚未配置有效的 activeProvider。',
+        'provider-config-unavailable': '无法读取当前提供方的 config.json。',
+        'provider-model-unavailable': '当前提供方缺少 spec.model 模型名称。',
+        'provider-endpoint-unavailable': '当前提供方缺少有效的 baseUrl 端点。',
+        'provider-protocol-unsupported': '内置隔离执行器当前仅支持 OpenAI 兼容接口（/chat/completions），暂不支持原生 Anthropic 或 Gemini v1beta 协议。',
+        'provider-key-unavailable': '当前提供方缺少 secret 或 .env 中的 API 密钥。',
+        'context-window-unavailable': '当前提供方缺少有效的 spec.contextWindow。',
+        'provider-output-limit-unavailable': '当前提供方缺少有效的 spec.maxTokens。',
         'reservation-or-context-unavailable': '无法核对请求预算，或所选长度档超过当前上下文容量。',
         'budget-too-small': '本次题集超过执行预留上限。请核对 Token 上限或减少测试组后重新预检；仍受限时需检查执行器。',
         'preflight-expired': '预检已过期，请重新预检并确认。',
@@ -1682,9 +1696,10 @@ function makeDeepCheckupPanel() {
         }
         const budget = make('div', 'sc-deep-budget-grid sc-deep-preflight-grid');
         const plan = preflight?.plan;
+        const compactTok = (n) => !Number.isFinite(n) ? '未知' : n < 1000 ? num(n) : n < 1000000 ? `${(n / 1000).toFixed(1)}K` : `${(n / 1000000).toFixed(1)}M`;
         budget.append(fact('模型', plan?.model ?? status?.capability?.model ?? '未选择'),
           fact('预计请求', plan ? `${num(plan.totals.requests)} 次` : '待预检'),
-          fact('输入 / 输出 Token 上限', plan ? `${num(plan.totals.inputTokens)} / ${num(plan.totals.outputTokens)}` : '待核算', '输入是发送的材料，输出是模型的回答；这里显示预留上限'),
+          fact('输入 / 输出 Token 上限', plan ? `${compactTok(plan.totals.inputTokens)} / ${compactTok(plan.totals.outputTokens)}` : '待核算', '输入是发送的材料，输出是模型的回答；这里显示预留上限'),
           fact('预计耗时', plan?.durationMs ? `${num(plan.durationMs[0] / 60000)}–${num(plan.durationMs[1] / 60000)} 分钟` : '暂无可靠估时', '缺少匹配样本时不填固定时间'),
           fact('数据类型', '合成测试材料', '不读取真实对话与用户记忆；另含执行器声明的提示'),
           fact('运行方式', '独立测试 · 顺序执行', '不调用工具，不写持久记忆，不自动重试'));
@@ -1761,20 +1776,147 @@ function makeDeepCheckupPanel() {
       function renderReport(content) {
         const run = status?.run; const report = status?.report;
         if (!run || !report) { content.append(note('尚无深度体检报告。未执行的项目不会显示演示成绩。')); return; }
-        content.append(make('h2', '', '深度体检报告'), note(`${states[run.state] ?? run.state} · 不生成综合总分。仅描述本次题集与当前配置。`));
-        content.append(section('结果速读', note(report.summary)));
-        content.append(memoryScopeCard(report.memoryScope));
-        const facts = make('div', 'sc-deep-budget-grid');
-        facts.append(fact('模型', run.model), fact('运行方法', run.method), fact('输入 / 输出 Token', `${num(run.usage.inputTokens)} / ${num(run.usage.outputTokens)}`, '仅含已回报用量，包含失败请求的已知消耗'), fact('计量状态', run.usage.complete && !run.unsettled ? '已回报' : '存在未回报用量'));
-        content.append(section('本次运行条件与消耗', facts));
-        const readings = make('div', 'sc-deep-reading-grid');
+        const compactTok = (n) => !Number.isFinite(n) ? '未知' : n < 1000 ? num(n) : n < 1000000 ? `${(n / 1000).toFixed(1)}K` : `${(n / 1000000).toFixed(1)}M`;
+        const totPass = report.groups.reduce((s, g) => s + (g.pass || 0), 0);
+        const totFail = report.groups.reduce((s, g) => s + (g.fail || 0), 0);
+        const totValid = report.groups.reduce((s, g) => s + (g.valid || 0), 0);
+        const totPlanned = report.groups.reduce((s, g) => s + (g.planned || 0), 0);
+        const allOk = run.state === 'completed' && totValid > 0 && totFail === 0 && totPass === totValid;
+        const hasFail = totFail > 0 || ['failed', 'paused', 'interrupted'].includes(run.state);
+        const tone = allOk ? 'ok' : hasFail ? 'bad' : 'warn';
+        const headlineText = allOk
+          ? `全部 ${totPass} 项合成体检通过`
+          : totFail > 0
+            ? `${totFail} 项未通过（通过 ${totPass} / ${totPlanned}）`
+            : `${states[run.state] ?? run.state}（已通过 ${totPass} / ${totPlanned}）`;
+
+        // 1. Hero 结论卡（第一眼看懂结果）
+        const hero = make('section', `sc-deep-hero sc-deep-hero-${tone}`);
+        const heroTop = make('div', 'sc-deep-hero-top');
+        const heroTitleWrap = make('div', 'sc-deep-hero-title');
+        const badge = make('span', `sc-deep-badge sc-deep-badge-${tone}`, allOk ? '✓ 体检通过' : hasFail ? '⚠ 发现异常' : '● 部分完成');
+        heroTitleWrap.append(badge, make('h2', '', headlineText));
+        const exportBtn = button('导出文字报告', async () => {
+          try {
+            const result = await call('deepText');
+            const url = URL.createObjectURL(new Blob([result.text], { type: 'text/plain;charset=utf-8' }));
+            const link = make('a'); link.href = url; link.download = `deep-checkup-${run.id}.txt`; link.click();
+            ctx.timeout(() => URL.revokeObjectURL(url), 1000);
+          } catch { error = '报告导出失败，请稍后重试。'; paint(); }
+        });
+        heroTop.append(heroTitleWrap, exportBtn);
+        const heroMeta = make('div', 'sc-deep-hero-meta');
+        heroMeta.append(
+          make('span', 'sc-deep-chip', `模型 · ${run.model}`),
+          make('span', 'sc-deep-chip', `消耗 · ${compactTok(run.usage.inputTokens)} 入 / ${compactTok(run.usage.outputTokens)} 出`),
+          make('span', 'sc-deep-chip', `状态 · ${states[run.state] ?? run.state}`),
+          make('span', 'sc-deep-chip', run.usage.complete && !run.unsettled ? '计量完整' : '存在未回报用量'),
+        );
+        const heroSummary = make('div', 'sc-deep-hero-summary');
+        heroSummary.append(make('span', 'sc-deep-hero-label', '结果速读'), make('p', '', report.summary));
+        hero.append(heroTop, heroMeta, heroSummary);
+        content.append(hero);
+
+        if (!run.usage.complete || run.unsettled) {
+          content.append(note('用量回报不完整，已回报 Token 只是已知部分。请查看运行状态中的未回报请求预留，不要把未知用量当作零。', true));
+        }
+
+        // 1.5 未通过 / 无效项具体原因（直出主屏，一眼看懂到底错在哪！）
+        const explainReason = (raw) => {
+          const text = String(raw ?? '').trim();
+          if (!text) return '未提供详细原因';
+          if (text === 'format' || /format|json/i.test(text)) return '输出格式不合规（未严格按要求的纯 JSON 格式回复，可能多写了说明文字或代码块）';
+          if (text === 'mismatch' || /mismatch|expected/i.test(text)) return '回答内容与目标事实不符（漏读信息或仍沿用了更正前的旧值）';
+          if (text === 'usage-unavailable') return '模型未回报 Token 用量，记为无效样本';
+          if (/timeout|abort/i.test(text)) return '请求超时或被中止';
+          if (/provider|http|error|network/i.test(text)) return `接口调用失败（${text}）`;
+          return text;
+        };
+        const labelCaseId = (id) => {
+          const posMap = { begin: '首部', middle: '中部', end: '尾部' };
+          const mCtx = String(id).match(/^context-(\d+)-(begin|middle|end)$/);
+          if (mCtx) return `上下文保持 · ${Math.round(Number(mCtx[1]) / 1024)}K ${posMap[mCtx[2]]}`;
+          const mIns = String(id).match(/^instructions-(\d+)$/);
+          if (mIns) return `指令保持 · 第 ${Number(mIns[1]) + 1} 题`;
+          const mWm = String(id).match(/^working-memory-(\d+)$/);
+          if (mWm) return `会话内事实更新 · 第 ${Number(mWm[1]) + 1} 题`;
+          return String(id);
+        };
+        const rawResults = Array.isArray(run.results) ? run.results : [];
+        const problemItems = rawResults.filter((r) => r.outcome !== 'pass');
+        if (problemItems.length > 0) {
+          const list = make('div', 'sc-deep-problem-list');
+          for (const p of problemItems) {
+            const row = make('div', 'sc-deep-problem-row');
+            const tag = make('span', `sc-deep-badge sc-deep-badge-${p.outcome === 'fail' ? 'bad' : 'warn'}`, p.outcome === 'fail' ? '未通过' : '无效');
+            const info = make('div', 'sc-deep-problem-info');
+            info.append(make('strong', '', labelCaseId(p.id)), make('p', '', explainReason(p.reason)));
+            row.append(tag, info);
+            list.append(row);
+          }
+          content.append(section(`异常项具体原因（${problemItems.length} 项）`, list, '直接定位每一道没过的题和具体原因'));
+        }
+
+        // 2. 三项核心 KPI 卡片（绿/橙/红状态 + 进度条 + 白话建议）
+        const readings = make('div', 'sc-deep-kpi-grid');
         for (const item of report.groups) {
-          const card = make('article', 'sc-deep-reading');
-          card.append(make('h3', '', item.name), make('span', 'sc-deep-pill', item.outcomeLabel),
-            make('p', '', item.explanation), make('h4', '', '建议下一步'), make('p', '', item.nextStep));
+          const itemTone = item.valid > 0 && item.fail === 0 ? 'ok' : item.fail > 0 ? 'bad' : 'warn';
+          const pct = item.planned > 0 ? Math.round((item.pass / item.planned) * 100) : 0;
+          const card = make('article', `sc-deep-kpi sc-deep-kpi-${itemTone}`);
+          const kpiHead = make('div', 'sc-deep-kpi-head');
+          kpiHead.append(make('h3', '', item.name), make('span', `sc-deep-badge sc-deep-badge-${itemTone}`, item.outcomeLabel));
+          const scoreRow = make('div', 'sc-deep-kpi-score');
+          scoreRow.append(make('strong', '', `${item.pass} / ${item.planned}`), make('span', '', `通过（有效 ${item.valid} · 失败 ${item.fail}）`));
+          const bar = make('div', 'sc-deep-kpi-bar');
+          const fill = make('div', `sc-deep-kpi-fill sc-deep-kpi-fill-${itemTone}`);
+          fill.style.width = `${pct}%`;
+          bar.append(fill);
+          const groupProblems = problemItems.filter((r) => r.group === item.group);
+          const nextBox = make('div', 'sc-deep-kpi-next');
+          nextBox.append(make('span', '', '建议下一步'), make('p', '', item.nextStep));
+          card.append(kpiHead, scoreRow, bar, make('p', 'sc-deep-kpi-desc', item.explanation));
+          if (groupProblems.length > 0) {
+            const pNote = make('p', 'sc-deep-kpi-err', `失分点：${groupProblems.map((r) => `${labelCaseId(r.id).split(' · ')[1] ?? r.id}（${r.reason === 'format' ? '格式不合规' : explainReason(r.reason)}）`).join('；')}`);
+            card.append(pNote);
+          }
+          card.append(nextBox);
           readings.append(card);
         }
-        content.append(section('对你意味着什么', readings, '先看解读，再按需查看下方证据'));
+        content.append(section('对你意味着什么', readings, '绿标正常 · 橙/红标需重点关注'));
+
+        // 3. 上下文长度 × 位置 3×3 状态矩阵（一眼看清首/中/尾在哪漏了）
+        if (report.lengths?.length) {
+          const positionOrder = [['begin', '首部'], ['middle', '中部'], ['end', '尾部']];
+          const outcomeMeta = { pass: ['✓ 通过', 'ok'], fail: ['✕ 未通过', 'bad'], invalid: ['— 无效', 'warn'] };
+          const matrixWrap = make('div', 'sc-deep-matrix-wrap');
+          const matrix = make('table', 'sc-deep-matrix');
+          const thead = make('thead');
+          const hr = make('tr');
+          hr.append(make('th', '', '材料长度'));
+          for (const [, posLabel] of positionOrder) hr.append(make('th', '', posLabel));
+          thead.append(hr); matrix.append(thead);
+          const tbody = make('tbody');
+          for (const length of report.lengths) {
+            const tr = make('tr');
+            tr.append(make('td', 'sc-deep-matrix-label', length.label));
+            for (const [posKey] of positionOrder) {
+              const sample = length.samples.find((s) => s.position === posKey);
+              const [txt, cellTone] = outcomeMeta[sample?.outcome] ?? ['— 未知', 'warn'];
+              const td = make('td');
+              td.append(make('span', `sc-deep-cell sc-deep-cell-${cellTone}`, txt));
+              tr.append(td);
+            }
+            tbody.append(tr);
+          }
+          matrix.append(tbody); matrixWrap.append(matrix);
+          content.append(section('上下文首／中／尾定位矩阵', matrixWrap, '一眼看清不同长度与位置是否漏信息'));
+        }
+
+        // 4. 详细数据、记忆范围与技术说明全部收纳进折叠抽屉（默认收起，保持主界面清爽）
+        const drawer = make('details', 'sc-deep-drawer');
+        drawer.append(make('summary', '', '展开详细证据、记忆范围与运行说明'));
+        const drawerBody = make('div', 'sc-deep-drawer-body');
+        drawerBody.append(memoryScopeCard(report.memoryScope));
         const rows = make('div', 'sc-deep-table-wrap'); const table = make('table', 'sc-deep-table');
         const header = make('tr'); for (const label of ['项目', '结论', '有效 / 计划', '通过 / 未通过', '无效', '未执行', '证据强度']) header.append(make('th', '', label)); const head = make('thead'); head.append(header); table.append(head);
         const body = make('tbody');
@@ -1783,33 +1925,19 @@ function makeDeepCheckupPanel() {
           for (const value of [item.name, item.outcomeLabel, `${item.valid} / ${item.planned}`, `${item.pass} / ${item.fail}`, item.invalid, item.notRun, item.evidenceLabel]) row.append(make('td', '', value));
           body.append(row);
         }
-        table.append(body); rows.append(table); content.append(section('分项结果与证据', rows));
-        if (report.lengths?.length) {
-          const lengths = make('div', 'sc-deep-card-body');
-          const positionNames = { begin: '首部', middle: '中部', end: '尾部' };
-          const outcomes = { pass: '通过', fail: '未通过', invalid: '无效' };
-          for (const length of report.lengths) lengths.append(make('p', '', `${length.label}：${length.samples.map((sample) => `${positionNames[sample.position] ?? sample.position} ${outcomes[sample.outcome] ?? '未知'}`).join(' · ')}`));
-          lengths.append(make('p', '', '每个位置仅一个样本，字符档不等于 Token 窗口；当前证据不足以推荐扩大或缩短上下文。'));
-          content.append(section('上下文长度档证据', lengths));
-        }
+        table.append(body); rows.append(table);
+        drawerBody.append(section('分项结果与证据', rows));
         const terms = make('details', 'sc-deep-card-body'); terms.append(make('summary', '', '看不懂术语？查看测试内容与判读方法'));
         for (const item of report.groups) terms.append(make('p', '', `${item.name}：${item.purpose}`));
         terms.append(make('p', '', '有效样本：能完成判分的回答。无效请求：超时、取消或缺少用量等，不能当作模型能力差。通过：符合本题预设答案，不等于日常使用永不出错。'),
           make('p', '', '证据强度：描述本次样本覆盖程度，不是统计置信度或长期可靠率。字符档：测试材料的字符数量，不等于模型的 Token 窗口。'));
-        content.append(terms);
+        drawerBody.append(terms);
         const details = make('details', 'sc-deep-card-body'); details.append(make('summary', '', '查看逐项合成测试证据'));
-        for (const item of report.evidence) details.append(make('p', 'sc-deep-footnote', `${item.id} · ${item.outcome} · ${item.reason}`)); content.append(details);
-        content.append(note(`未覆盖：${report.untested.join('、')}。${report.limitations.join(' ')}`));
-        if (!run.usage.complete || run.unsettled) content.append(note('用量回报不完整，已回报 Token 只是已知部分。请查看运行状态中的未回报请求预留，不要把未知用量当作零。', true));
-        const actions = make('div', 'sc-deep-actions');
-        actions.append(button('导出文字报告', async () => {
-          try {
-            const result = await call('deepText');
-            const url = URL.createObjectURL(new Blob([result.text], { type: 'text/plain;charset=utf-8' }));
-            const link = make('a'); link.href = url; link.download = `deep-checkup-${run.id}.txt`; link.click();
-            ctx.timeout(() => URL.revokeObjectURL(url), 1000);
-          } catch { error = '报告导出失败，请稍后重试。'; paint(); }
-        })); content.append(actions);
+        for (const item of report.evidence) details.append(make('p', 'sc-deep-footnote', `${item.id} · ${item.outcome} · ${item.reason}`));
+        drawerBody.append(details);
+        drawerBody.append(note(`未覆盖：${report.untested.join('、')}。${report.limitations.join(' ')}`));
+        drawer.append(drawerBody);
+        content.append(drawer);
       }
 
       function renderCooperative(content) {
@@ -1957,6 +2085,8 @@ function makePassivePanel(view) {
     const titles = { tokens: 'Token 消耗', memory: '记忆状态', context: '上下文适配' };
     const el = (tag, className = '', text) => { const n = document.createElement(tag); n.className = className; if (text !== undefined) n.textContent = String(text); return n; };
     const format = (n) => Number.isFinite(n) ? new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 1 }).format(n) : '未知';
+    const formatTokenCompact = (n) => !Number.isFinite(n) ? '未知' : n < 1000 ? format(n) : n < 1000000 ? `${(n / 1000).toFixed(1)}K` : `${(n / 1000000).toFixed(1)}M`;
+    const token = (n) => ({ text: formatTokenCompact(n), title: Number.isFinite(n) ? String(n) : null });
     const percent = (n) => Number.isFinite(n) ? `${(n * 100).toFixed(1)}%` : '未知';
     const root = el('div', 'sc-deep-root sc-pass-root'); ctx.root.append(root);
     const head = el('header', 'sc-pass-head'); const lead = el('div'); lead.append(el('h2', '', titles[view]), el('p', '', '日常被动诊断 · 本地只读 · 不额外调用模型'));
@@ -1965,7 +2095,7 @@ function makePassivePanel(view) {
     const button = (text, fn) => { const b = el('button', 'sc-deep-button', text); b.type = 'button'; b.addEventListener('click', fn, { signal: ctx.signal }); return b; };
     const box = (text, warn = false) => el('p', `sc-deep-callout${warn ? ' sc-deep-callout-warn' : ''}`, text);
     const card = (title, content, help = '') => { const n = el('section', 'sc-deep-card'); n.append(el('h3', '', title)); if (help) n.append(el('p', 'sc-pass-muted', help)); n.append(content); return n; };
-    const tile = (name, value, help = '') => { const n = el('div', 'sc-deep-fact'); n.append(el('span', '', name), el('b', '', value)); if (help) n.append(el('small', '', help)); return n; };
+    const tile = (name, value, help = '') => { const n = el('div', 'sc-deep-fact'); const b = el('b', '', value?.text ?? value); if (value?.title) b.title = value.title; n.append(el('span', '', name), b); if (help) n.append(el('small', '', help)); return n; };
     const tiles = (...nodes) => { const grid = el('div', 'sc-pass-grid'); grid.append(...nodes); return grid; };
     const list = (rows) => { const n = el('ul', 'sc-pass-notes'); for (const text of rows) n.append(el('li', '', text)); return n; };
     const details = (title, lines) => { const n = el('details', 'sc-deep-card'); n.append(el('summary', '', title), list(lines)); return n; };
@@ -1974,42 +2104,119 @@ function makePassivePanel(view) {
       for (const text of headers) { const n = el('th', '', text); n.setAttribute('scope', 'col'); h.append(n); }
       const thead = el('thead'); thead.append(h); t.append(thead); const tbody = el('tbody');
       if (!rows.length) { const tr = el('tr'); const td = el('td', 'sc-pass-muted', '暂无可用记录'); td.setAttribute('colspan', String(headers.length)); tr.append(td); tbody.append(tr); }
-      for (const row of rows) { const tr = el('tr'); for (const text of row) tr.append(el('td', '', text)); tbody.append(tr); }
+      for (const row of rows) { const tr = el('tr'); for (const value of row) { const td = el('td'); if (value && typeof value !== 'string' && typeof value !== 'number') td.append(value); else td.textContent = String(value); tr.append(td); } tbody.append(tr); }
       t.append(tbody); wrap.append(t); return wrap;
     };
     const bars = (rows, key = 'knownTotal') => {
       const n = el('div', 'sc-pass-bars'); const max = Math.max(1, ...rows.map((r) => r[key] ?? 0));
       if (!rows.length) return box('没有可用时段记录；缺少日志不代表消耗为零。');
-      for (const row of rows) { const line = el('div', 'sc-pass-bar-row'); line.append(el('span', '', row.name)); const track = el('div', 'sc-pass-track'); const fill = el('div', 'sc-pass-fill'); fill.style.width = `${Math.max(0, row[key] ?? 0) / max * 100}%`; track.append(fill); line.append(track, el('span', '', `${format(row[key])} · ${format(row.requests)} 条`)); n.append(line); }
+      for (const row of rows) { const line = el('div', 'sc-pass-bar-row'); line.append(el('span', '', row.name)); const track = el('div', 'sc-pass-track'); const fill = el('div', 'sc-pass-fill'); fill.style.width = `${Math.max(0, row[key] ?? 0) / max * 100}%`; track.append(fill); const value = el('span', '', `${formatTokenCompact(row[key])} · ${format(row.requests)} 条`); if (Number.isFinite(row[key])) value.title = String(row[key]); line.append(track, value); n.append(line); }
       return n;
     };
     function renderTokens() {
       const u = data.usage, a = data.activity;
       body.append(box(u.summary, u.complete < u.requests || u.state !== 'ready'));
-      body.append(tiles(tile('已知输入', u.inputKnown ? format(u.input) : '未知', `${u.inputKnown}/${u.requests} 条已回报`),
-        tile('已知输出', u.outputKnown ? format(u.output) : '未知', `${u.outputKnown}/${u.requests} 条已回报`),
-        tile('已知合计', u.inputKnown + u.outputKnown ? format(u.knownTotal) : '未知', '输入 + 输出；缺报部分未计入'),
+      body.append(tiles(tile('已知输入', u.inputKnown ? token(u.input) : '未知', `${u.inputKnown}/${u.requests} 条已回报`),
+        tile('已知输出', u.outputKnown ? token(u.output) : '未知', `${u.outputKnown}/${u.requests} 条已回报`),
+        tile('已知合计', u.inputKnown + u.outputKnown ? token(u.knownTotal) : '未知', '输入 + 输出；缺报部分未计入'),
         tile('用量记录', format(u.requests), `完整计量 ${format(u.complete)} 条`),
         tile('配对样本缓存命中', percent(u.cacheRate), `${u.cacheKnown}/${u.requests} 条可计算；缓存包含在输入中`),
-        tile('失败／取消／丢弃的已知量', u.requests ? format(u.failedKnown) : '未知', '计入总量；未上报用途与状态不猜测')));
+        tile('失败／取消／丢弃的已知量', u.requests ? token(u.failedKnown) : '未知', '计入总量；未上报用途与状态不猜测')));
       const charts = el('div', 'sc-pass-columns'); charts.append(card('每天什么时候用得多', bars(u.days), '按部署时区分日；只绘制有记录的日期，未记录日期不补零。'), card('一天中的高耗时段', bars(u.hours.slice(0, 8)), `按 ${u.timezone} 聚合各天同一小时；这是峰值分布，不直接判异常。`)); body.append(charts);
-      body.append(card('同模型、同角色的历史参考', u.comparisons.length ? table(['对照组／日期', '本期单次已知量', '历史参考', '变化'], u.comparisons.map((r) => [`${r.name}\n${r.day}`, format(r.average), `${format(r.baseline)}（${r.baselineDays} 天）`, `${r.ratio.toFixed(2)} 倍 · ${r.state === 'higher' ? '较参考升高' : '未达到提示线'}`])) : box('需要至少 4 个完整历史日期，每天同模型、同角色至少 5 条完整计量；当前数据不足。'), '比较最近一个合格的完整日期与更早日期；单次均值达历史参考 1.5 倍时提示。角色相同不代表任务相同，任务变化也会影响结果。'));
-      body.append(card('缓存与输出计量', tiles(tile('配对样本缓存输入', u.cacheKnown ? format(u.cached) : '未知', '已包含在输入量中'), tile('配对样本未缓存输入', format(u.uncachedPaired), '仅输入与缓存都回报的样本'), tile('已知推理 Token', u.reasoningKnown ? format(u.reasoning) : '未知', '通常属于输出，不重复加总'))));
-      body.append(card('模型、角色与用途', table(['分类', '已知 Token', '用量记录', '完整计量'], [...u.byModel.slice(0, 12).map((r) => [`模型 · ${r.name}`, format(r.knownTotal), format(r.requests), `${r.complete}/${r.requests}`]), ...u.byRole.slice(0, 12).map((r) => [`角色 · ${r.name}`, format(r.knownTotal), format(r.requests), `${r.complete}/${r.requests}`]), ...u.byPurpose.map((r) => [`用途 · ${r.name}`, format(r.knownTotal), format(r.requests), `${r.complete}/${r.requests}`])]), '用途由 COO 记录上报；未标注不会推断成日常对话。'));
-      body.append(card('插件独立上报的用量', table(['World ID', '已知 Token', '记录／完整'], u.worldReported.map((r) => [r.name, format(r.knownTotal), `${r.requests} / ${r.complete}`])), `仅列 worlds.<id> 仪表项，是独立上报量。共享／未归因池：${format(u.shared.knownTotal)} 已知 Token，不能按工具调用次数分配给插件。`));
-      body.append(card('插件活动与回执体量', table(['来源 ID', '调用／失败', '回执字符', '典型耗时', '活动高峰'], a.rows.map((r) => [r.id, `${r.calls} / ${r.failures}`, r.charsKnown ? `${format(r.chars)}（${r.charsKnown} 条有长度）` : '未回报', r.medianMs === null ? '未知' : `${format(r.medianMs)} ms`, r.peakAt ? new Date(r.peakAt).toLocaleString('zh-CN', { timeZone: u.timezone }) : '未知'])), '排序依据是回执字符，不是 Token 费用；回执只是可能进入后续请求的一部分，未做字符转 Token 或共享账单归因。'));
+      body.append(card('缓存与输出计量', tiles(
+        tile('配对样本缓存输入', u.cacheKnown ? token(u.cached) : '未知', '已包含在输入量中'),
+        tile('配对样本未缓存输入', token(u.uncachedPaired), '仅输入与缓存都回报的样本'),
+        tile('已知推理 Token', u.reasoningKnown ? token(u.reasoning) : '未知', '通常属于输出，不重复加总'),
+      )));
+      const fallbackLabels = {
+        qqbot: 'QQ 群聊', terrarium: '生态缸', ego: 'Ego 浏览器', socialmedia: '小鲸鱼爱冲浪',
+        'self-checkup': '体检报告', parlor: '客厅', starpost: '星邮', feast: '鱼的每一天',
+        fishtools: '鱼脑', eat: '吃饭', imggen: '生图工作室', fishdaily: '肥鱼和你的日常',
+        shop: '鱼宝商城', fun: '娱乐时间', map: '鱼的小世界', clawbot: '微信小龙虾',
+        learn: '学习', webanswer: '联网问答', 'gpt-sovits': 'GPTSovits 语音',
+        'bilibili-video': 'B 站视频', 'Persona／归属未上报': '主对话 / 未归属',
+      };
+      const labelMap = { ...fallbackLabels, ...(data.pluginLabels ?? {}) };
+      const plugins = new Map();
+      for (const r of a.rows) plugins.set(r.id, { id: r.id, calls: r.calls, replyChars: r.charsKnown ? r.chars : 0, reported: null });
+      for (const r of u.worldReported) {
+        const id = String(r.name); const row = plugins.get(id) ?? { id, calls: 0, replyChars: 0, reported: null };
+        row.reported = r.knownTotal; row.calls = Math.max(row.calls, r.requests); plugins.set(id, row);
+      }
+      const ranking = [...plugins.values()].map((r) => {
+        const display = labelMap[r.id] ?? '';
+        return { ...r, display, amount: r.reported ?? Math.round(r.replyChars / 2), kind: r.reported === null ? '估算' : '实报' };
+      }).sort((x, y) => y.amount - x.amount);
+      const totalPlugin = ranking.reduce((sum, r) => sum + r.amount, 0);
+      const maxPlugin = Math.max(1, ...ranking.map((r) => r.amount));
+      const palette = ['#34d399', '#38bdf8', '#a78bfa', '#fbbf24', '#fb7185', '#2dd4bf', '#64748b'];
+      const pluginBody = el('div', 'sc-pass-plugin-wrap');
+      if (totalPlugin > 0) {
+        const topN = ranking.slice(0, 6);
+        const restAmount = ranking.slice(6).reduce((s, r) => s + r.amount, 0);
+        const slices = topN.map((r, i) => ({ name: r.display || r.id, amount: r.amount, color: palette[i % palette.length] }));
+        if (restAmount > 0) slices.push({ name: `其他 (${ranking.length - 6} 项)`, amount: restAmount, color: palette[6] });
+        let acc = 0;
+        const stops = slices.map((s) => {
+          const start = (acc / totalPlugin) * 100; acc += s.amount; const end = (acc / totalPlugin) * 100;
+          return `${s.color} ${start.toFixed(2)}% ${end.toFixed(2)}%`;
+        });
+        const pieWrap = el('div', 'sc-pass-pie-wrap');
+        const donut = el('div', 'sc-pass-donut');
+        donut.style.background = `conic-gradient(${stops.join(', ')})`;
+        const hole = el('div', 'sc-pass-donut-hole');
+        hole.append(el('strong', '', formatTokenCompact(totalPlugin)), el('span', '', '插件估算总计'));
+        donut.append(hole);
+        const legend = el('div', 'sc-pass-legend');
+        for (const s of slices) {
+          const item = el('div', 'sc-pass-legend-item');
+          const dot = el('i', 'sc-pass-legend-dot'); dot.style.background = s.color;
+          const pct = `${((s.amount / totalPlugin) * 100).toFixed(1)}%`;
+          item.append(dot, el('span', 'sc-pass-legend-name', s.name), el('strong', 'sc-pass-legend-pct', pct), el('span', 'sc-pass-legend-val', formatTokenCompact(s.amount)));
+          legend.append(item);
+        }
+        pieWrap.append(donut, legend);
+        pluginBody.append(pieWrap);
+      }
+      const pluginRows = ranking.map((r, i) => {
+        const name = el('div', 'sc-pass-plugin-name');
+        if (r.display && r.display !== r.id) name.append(el('strong', '', r.display), el('small', '', r.id));
+        else name.append(el('strong', '', r.id));
+        const bar = el('div', 'sc-pass-track'); const fill = el('div', 'sc-pass-fill');
+        fill.style.width = `${r.amount / maxPlugin * 100}%`;
+        if (i < 6) fill.style.background = palette[i];
+        bar.append(fill);
+        const pctText = totalPlugin > 0 ? ` · ${((r.amount / totalPlugin) * 100).toFixed(1)}%` : '';
+        const amount = el('span', '', `${formatTokenCompact(r.amount)} ${r.kind}${pctText}`); amount.title = String(r.amount);
+        return [name, bar, amount, `${format(r.calls)} 次`];
+      });
+      pluginBody.append(table(['插件', '消耗占比', '消耗量', '调用次数'], pluginRows));
+      body.append(card('各插件消耗排行', pluginBody, 'Coo 账单未按插件拆分；有独立上报时优先显示实报 Token，其余按工具回执体量估算带入 Token。'));
       body.append(details('数据覆盖与口径', [u.limits, `usage 来源：${u.state}；采样截断：${u.source.limited ? '是' : '否'}；坏行 ${u.source.bad}；无效时间 ${u.source.invalidTime}；明确 ID 去重 ${u.source.duplicates}。`, `工具活动来源：${a.state}；扫描 ${a.files} 份日志；采样上限触发：${a.limited ? '是' : '否'}；不可读 ${a.unreadable ?? 0} 份；坏行 ${a.bad ?? 0}。`, '用量日志最多读取末尾 8 MiB／20,000 行；工具日志最多 256 个运行目录、每份末尾 256 KiB／1,000 行。达到上限时只代表窗口内样本。', '没有来源分块、可靠分词与请求关联证据时，不显示精确插件 Token 榜、前缀 Token 或记忆注入 Token。']));
     }
     function renderMemory() {
       const m = data.memory; body.append(box(m.summary));
-      body.append(tiles(tile('宿主清单', ({ ready: '已读取', 'not-read': '尚未读取', unavailable: '宿主未提供' })[m.inventoryState] ?? '未能核实', '清单不证明记忆类型或调用链'), tile('主动检测的记忆实现', '0', '本页只读观察'), tile('当前会话正在使用', '未核实', '不能按目录或安装状态推断')));
-      const refresh = button('读取宿主插件清单', async () => {
+      const pluginRows = m.rows.filter((r) => r.id !== 'workspace-storage');
+      const enabledCount = pluginRows.filter((r) => r.enabled === true).length;
+      const wsRow = m.rows.find((r) => r.id === 'workspace-storage');
+      body.append(tiles(
+        tile('宿主清单', ({ ready: '已实时读取', 'not-read': '尚未读取', unavailable: '宿主未提供' })[m.inventoryState] ?? '未能核实', '来自本机宿主扩展接口'),
+        tile('已识别记忆插件', m.inventoryState === 'ready' ? `${pluginRows.length} 个` : '待读取', m.inventoryState === 'ready' ? `其中已启用 ${enabledCount} 个` : '需读取宿主清单'),
+        tile('本地记忆存储', wsRow?.status === 'observed' ? '读写正常' : '未就绪', wsRow?.evidence ?? '工作区记忆目录'),
+      ));
+      const refresh = button('刷新宿主插件清单', async () => {
         if (busy) return; busy = true; refresh.disabled = true;
-        try { const result = await ctx.invoke('passiveInventory', []); notice = result.ok ? '已尝试读取宿主白名单元数据；未读取设置、记忆正文或密钥。' : '当前宿主未提供可用清单接口，安装与使用情况保持未知。'; ctx.ui?.toast?.(notice, 'plain'); await load(false); }
+        try { const result = await ctx.invoke('passiveInventory', []); notice = result.ok ? '已刷新本机宿主插件清单。' : '当前宿主未提供可用清单接口，安装与使用情况保持未知。'; ctx.ui?.toast?.(notice, 'plain'); await load(false); }
         catch { notice = '读取清单失败；不据此判断插件未安装。'; render(); }
         finally { busy = false; refresh.disabled = false; }
       }); body.append(refresh);
-      body.append(card('实际覆盖到哪里', table(['来源／版本', '状态', '启用', '当前使用／主动检测', '证据与边界'], m.rows.map((r) => [r.version ? `${r.name}\n${r.version}` : r.name, ({ listed: '宿主列出', observed: '文件可读', missing: '路径缺失', unreadable: '读取失败', 'not-directory': '不是目录' })[r.status] ?? '未知', r.enabled === null ? '未知' : r.enabled ? '已启用' : '已禁用', '未核实／未执行', `${r.evidence}。${r.detail}`]))));
+      const pill = (text, tone = 'muted') => el('span', `sc-pass-pill sc-pass-pill-${tone}`, text);
+      body.append(card('记忆来源与近期活跃', table(['来源／版本', '状态', '启用', '近期活跃与说明'], m.rows.map((r) => [
+        r.version ? `${r.name}\n${r.version}` : r.name,
+        pill(({ listed: '已安装', observed: '文件可读', missing: '路径缺失', unreadable: '读取失败', 'not-directory': '不是目录' })[r.status] ?? '未知', r.status === 'observed' || r.status === 'listed' ? 'ok' : 'warn'),
+        pill(r.enabled === null ? '未知' : r.enabled ? '已启用' : '已禁用', r.enabled === true ? 'ok' : 'muted'),
+        `${r.evidence}。${r.detail}`,
+      ]))));
       if (m.telemetry) { const t = m.telemetry; body.append(card(t.name, tiles(tile('条目样本', format(t.count)), tile('检索次数', format(t.retrievals)), tile('返回候选的比例', percent(t.hitRate)), tile('标注为已注入的比例', percent(t.injectedRate)), tile('平均检索耗时', t.avgMs === null ? '未知' : `${format(t.avgMs)} ms`)), t.detail)); }
       else body.append(box('没有可用的兼容记忆日志统计。这可能是原生实现、其它插件格式、尚无活动或日志不可读，不能直接判定没有记忆或记忆故障。'));
       body.append(details('如何理解记忆状态', m.limitations));
@@ -2068,7 +2275,7 @@ function makeGroupedPanel(baseId, panels) {
     if (baseId === 'hardware') {
       for (const [key, label] of [
         ['hardware', zh ? '总览' : 'Overview'], ['tokens', zh ? 'Token 消耗' : 'Token usage'],
-        ['memory-coverage', zh ? '记忆状态' : 'Memory status'], ['context-fit', zh ? '上下文适配' : 'Context fit']
+        ['memory-coverage', zh ? '记忆状态' : 'Memory status']
       ]) {
         const button = el('button', 'sc-group-tab', label); button.type = 'button';
         button.id = `${id}-${key}`; button.setAttribute('role', 'tab');

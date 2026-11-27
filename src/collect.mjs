@@ -263,7 +263,7 @@ export function readMemory(memoryDir, { sampleDays = 7, now = new Date(), timezo
     const recalledTopics = new Map();
     const acc = {
       total: 0, invalid: 0, stale: 0, recent: 0,
-      tags: new Map(), valenceNonZero: 0, valenceSum: 0, valenceCount: 0,
+      tags: new Map(), valenceNonZero: 0, valenceCount: 0,
       weightSum: 0, weightCount: 0, profileCount: 0, profileRecalled: 0, days: new Set(),
     };
     try {
@@ -292,10 +292,10 @@ export function readMemory(memoryDir, { sampleDays = 7, now = new Date(), timezo
           const k = String(tag);
           acc.tags.set(k, (acc.tags.get(k) ?? 0) + 1);
         }
-        if (typeof e?.valence === 'number') {
+        const valence = entryValence(e);
+        if (valence !== null) {
           acc.valenceCount += 1;
-          acc.valenceSum += e.valence;
-          if (e.valence !== 0) acc.valenceNonZero += 1;
+          if (valence !== 0) acc.valenceNonZero += 1;
         }
         if (typeof e?.weight === 'number') {
           acc.weightCount += 1;
@@ -320,6 +320,7 @@ export function readMemory(memoryDir, { sampleDays = 7, now = new Date(), timezo
       tagDiversity: [...acc.tags.values()].reduce((a, b) => a + b, 0) > 0
         ? acc.tags.size / [...acc.tags.values()].reduce((a, b) => a + b, 0)
         : null,
+      valenceCount: acc.valenceCount,
       valenceNonZeroRatio: acc.valenceCount > 0 ? acc.valenceNonZero / acc.valenceCount : null,
       avgWeight: acc.weightCount > 0 ? acc.weightSum / acc.weightCount : 0,
     };
@@ -450,6 +451,18 @@ export function readMemory(memoryDir, { sampleDays = 7, now = new Date(), timezo
     out.reason = 'no-recognised-files';
   }
   return out;
+}
+
+function entryValence(entry) {
+  const emotion = entry?.emotion;
+  if (Number.isFinite(emotion)) return emotion;
+  if (Number.isFinite(emotion?.valence)) return emotion.valence;
+  if (typeof emotion === 'string') {
+    const label = emotion.trim().toLowerCase();
+    if (['calm', 'neutral', '平静', '中性'].includes(label)) return 0;
+    if (label && !['unknown', 'none', 'n/a', '未知', '未标注'].includes(label)) return 1;
+  }
+  return Number.isFinite(entry?.valence) ? entry.valence : null;
 }
 
 function summarizeSeries(series) {

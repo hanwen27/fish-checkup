@@ -4,11 +4,9 @@
  * 两块分开算，永不合并：
  *   · 硬件健康：六维评分，纯本地统计，零模型。
  *   · 人格测试：她自己答题出四字母，再用真实行为痕迹交叉验证。
- *   · 深度体检：独立确认与预算；缺少隔离执行器时拒绝启动。
  *
  * 边界：
  *   · 只读。除 dataDir/self-checkup/ 之外不写任何路径。
- *   · 本地汇总；Persona 认知接口只用于画像，深测仅允许显式注入的隔离执行器。
  */
 import type { Language } from 'cortico/core/language.ts';
 import type {
@@ -16,19 +14,20 @@ import type {
 } from 'cortico/core/types.ts';
 import type { WorldContext, WorldDefinition } from 'cortico/world.ts';
 import { mkdirSync, readFileSync, writeFileSync, renameSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { loadBotDefaults } from './deployment.mjs';
 
 import { collectAll } from './collect.mjs';
 import { buildReport, reportToText } from './report.mjs';
-import { loadQuiz, scoreQuiz } from './quiz.mjs';
+import { quizResultForState, pendingQuizBatch } from './quiz.mjs';
 import { TOOL_SCHEMAS, makeToolHandlers, QUIZ_TOOL, SUBMIT_TOOL } from './tools.mjs';
 import { pick } from './text.mjs';
 import { readProfileCopy } from './profile.mjs';
 import { compareProfileSignals, collectProfileSignals } from './profile-updates.mjs';
 import { cardPrompt } from './card-profile.mjs';
-import { DeepCheckup, deepReportText } from './deep-checkup.mjs';
-import type { DeepExecutor } from './deep-executor.ts';
+import { DeepCheckup, deepMemoryScope, deepReportText } from './deep-checkup.mjs';
+import { createBuiltinIsolatedExecutor, resolveCheckupHome, type DeepExecutor } from './deep-executor.ts';
+import { readJsonFile } from './deployment.mjs';
 import { CooperativeCheckup } from './cooperative-checkup.mjs';
 import type { CooperativeHost } from './cooperative-host.ts';
 import { collectPassiveDiagnostics, passiveReportText } from './passive-diagnostics.mjs';
@@ -66,6 +65,7 @@ export class CheckupWorld implements World {
   private readonly cfg: CheckupSection;
   private readonly botDir: string;
   private readonly dataDir: string;
+  private readonly homeDir: string;
   private readonly memoryDir: string;
   private readonly botName: string;
   private readonly packageDir?: string;
@@ -94,13 +94,13 @@ export class CheckupWorld implements World {
     cfg: CheckupSection;
     botDir: string;
     dataDir: string;
+    homeDir?: string;
     memoryDir: string;
     botName?: string;
     packageDir?: string;
     timezone?: string;
     /** 覆盖状态目录，仅供测试/冒烟用；正常装配不传，落 dataDir/self-checkup。 */
     stateDirOverride?: string;
-    /** Explicit opt-in by a host integration; ordinary cognition is never used. */
     deepExecutor?: DeepExecutor;
     /** Explicit COO host adapter; no adapter means this layer stays unavailable. */
     cooperativeHost?: CooperativeHost;
@@ -108,13 +108,14 @@ export class CheckupWorld implements World {
     this.cfg = opts.cfg;
     this.botDir = opts.botDir;
     this.dataDir = opts.dataDir;
+    this.homeDir = resolveCheckupHome(opts.dataDir, opts.homeDir);
     this.memoryDir = opts.memoryDir;
     this.botName = opts.botName ?? '';
     this.packageDir = opts.packageDir;
     this.timezone = opts.timezone;
     this.stateDirOverride = opts.stateDirOverride ?? null;
     this.deep = new DeepCheckup({
-      executor: opts.deepExecutor,
+      executor: opts.deepExecutor ?? createBuiltinIsolatedExecutor({ dataDir: this.dataDir, homeDir: this.homeDir }),
       model: () => this.modelName(),
       contextWindow: () => this.contextWindow(),
       stateDir: this.stateDir(),
@@ -268,22 +269,6 @@ export class CheckupWorld implements World {
     }
   }
 
-  /** 两批合起来算一次，结果落盘。 */
-  private recompute(next: QuizState): void {
-    if (next.batch1 === this.quiz.batch1 && next.batch2 === this.quiz.batch2 && next.creative !== this.quiz.creative) {
-      this.saveQuizState(next);
-      return;
-    }
-    const answers = [...(next.batch1?.answers ?? []), ...(next.batch2?.answers ?? [])];
-    if (answers.length === 0) {
-      this.saveQuizState(next);
-      return;
-    }
-    const result = scoreQuiz(loadQuiz('zh'), answers) as unknown as Record<string, unknown>;
-    const stamp = Math.max(next.batch1?.at ?? 0, next.batch2?.at ?? 0) || Date.now();
-    this.saveQuizState({ ...next, result, takenAt: stamp });
-  }
-
   /* ------------------------------------------------------------- 契约 */
 
   /** 不进系统前缀：体检是她需要时去调的东西，不是每轮都要背的常识。 */
@@ -314,7 +299,7 @@ export class CheckupWorld implements World {
       snapshot: () => this.snapshot(),
       contextWindow: () => this.contextWindow(),
       quizState: () => this.quiz as never,
-      saveQuizState: (next: never) => this.recompute(next as unknown as QuizState),
+      saveQuizState: (next: never) => this.saveQuizState(next as unknown as QuizState),
       language: () => 'zh',
       now: () => new Date(),
     });
@@ -424,19 +409,28 @@ export class CheckupWorld implements World {
       return this.invoke('method', ({ methodReport: 'report', methodText: 'text', methodRefresh: 'refresh' } as Record<string, string>)[method], args);
     }
     if ((panel === 'hardware' && ['passiveReport', 'passiveText', 'passiveInventory'].includes(method)) || ['tokens', 'memory-coverage', 'context-fit'].includes(panel)) {
-      if (method === 'passiveReport') return { ok: true, report: this.passiveReport(args?.[0] === true) };
+      if (method === 'passiveReport') {
+        if (!this.passiveInventoryState || args?.[0] === true) await this.readHostInventory();
+        return { ok: true, report: this.passiveReport(args?.[0] === true) };
+      }
       if (method === 'passiveText') return { ok: true, text: passiveReportText(this.passiveReport()) };
       if (method === 'passiveInventory') {
-        const result = await this.cooperative.readInventory();
-        this.passiveInventoryState = result.ok ? result.inventory : { status: result.error === 'inventory-unavailable' ? 'unavailable' : 'read-failed', rows: [] };
-        this.passiveCache = null;
+        const result = await this.readHostInventory();
         return { ok: result.ok, error: result.error };
       }
       return { ok: false, error: 'unknown-passive-method' };
     }
     if (panel === 'deep-checkup') {
-      if (method === 'deepStatus') return this.deep.status();
-      if (method === 'deepPreflight') return this.deep.preflight(args?.[0] ?? {});
+      if (method === 'deepStatus') {
+        if (!this.passiveInventoryState) await this.readHostInventory();
+        const st = this.deep.status();
+        return { ...st, memoryScope: deepMemoryScope(this.passiveInventoryState) };
+      }
+      if (method === 'deepPreflight') {
+        if (!this.passiveInventoryState) await this.readHostInventory();
+        const pf = this.deep.preflight(args?.[0] ?? {});
+        return { ...pf, memoryScope: deepMemoryScope(this.passiveInventoryState) };
+      }
       if (method === 'deepStart') {
         if (['running', 'stopping'].includes(this.cooperative.status().run?.state ?? '')) return { ok: false, error: 'already-running' };
         return this.deep.start(args?.[0] ?? {});
@@ -444,7 +438,7 @@ export class CheckupWorld implements World {
       if (method === 'deepStop') return this.deep.stop();
       if (method === 'deepText') return { ok: true, text: deepReportText(this.deep.run) };
       if (method === 'cooperativeStatus') return this.cooperative.status();
-      if (method === 'cooperativeInventory') return this.cooperative.readInventory();
+      if (method === 'cooperativeInventory') return this.readHostInventory();
       if (method === 'cooperativePreflight') {
         if (['running', 'stopping'].includes(this.deep.status().run?.state ?? '')) return { ok: true, ready: false, error: 'already-running', plan: null };
         return this.cooperative.preflight(args?.[0] ?? {});
@@ -574,12 +568,14 @@ export class CheckupWorld implements World {
   }
 
   private report(lang: 'zh' | 'en') {
+    const quizResult = quizResultForState(this.quiz, 'zh');
     const report = buildReport(this.safeSnapshot(), {
       contextWindow: this.contextWindow(),
-      quizResult: (this.quiz.result ?? null) as never,
+      quizResult,
+      pendingBatch: pendingQuizBatch(this.quiz),
       creativeResult: this.quiz.creative ?? null,
       language: lang,
-      quizTakenAt: this.quiz.takenAt ?? null,
+      quizTakenAt: quizResult ? this.quiz.takenAt ?? null : null,
       live: {
         phases: this.live.phases,
         backoffs: this.live.backoffs,
@@ -605,6 +601,56 @@ export class CheckupWorld implements World {
       seenKey: JSON.stringify(profile.signals.map(({ kind, key }) => [kind, key])),
     };
     return { ...report, personality: { ...report.personality, profile: { ...profile, ...followup } } };
+  }
+
+  private async readHostInventory() {
+    let inventory: { status: string; rows: unknown[]; detail: string } | null = null;
+    let port = 17788;
+    try {
+      const configured = Number(readJsonFile(join(this.homeDir, 'companion', 'config.json'))?.web?.port);
+      if (Number.isInteger(configured) && configured > 0 && configured <= 65535) port = configured;
+    } catch {}
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/api/extensions`, { signal: AbortSignal.timeout(1500), redirect: 'error' });
+      if (!response.ok) throw Error('inventory-http-failed');
+      const value = await response.json();
+      if (!Array.isArray(value?.extensions)) throw Error('inventory-invalid');
+      inventory = { status: 'ready', detail: '本机宿主 /api/extensions 实时清单', rows: value.extensions
+        .filter((item: any) => item && typeof item.name === 'string')
+        .map((item: any) => ({ name: item.name, id: item.worldId || item.name, kind: item.kind, version: item.version,
+          enabled: typeof item.loaded === 'boolean' ? item.loaded : null, label: item.label, description: item.description })) };
+    } catch {
+      const extDirs = [join(this.homeDir, 'extensions'), join(dirname(this.homeDir), 'extensions')];
+      let manifest: any = null;
+      let owners: any = null;
+      for (const dir of extDirs) {
+        if (!manifest) try { manifest = readJsonFile(join(dir, 'package.json')); } catch {}
+        if (!owners) try { owners = readJsonFile(join(dir, 'world-owners.json')); } catch {}
+      }
+      if (!owners) try { owners = readJsonFile(join(this.homeDir, 'world-owners.json')); } catch {}
+      if (manifest || owners) {
+        const dependencies = { ...manifest?.dependencies, ...manifest?.optionalDependencies };
+        const ownership = owners?.owners ?? owners ?? {};
+        const rows = new Map<string, any>();
+        for (const [id, owner] of Object.entries(ownership)) {
+          const value = owner as any;
+          const name = typeof value === 'string' ? value : value?.packageName ?? value?.package ?? value?.name;
+          if (typeof name !== 'string' || !name) continue;
+          rows.set(id, { id, name, kind: 'world', version: null, enabled: null, label: value?.label, description: value?.description });
+        }
+        for (const name of Object.keys(dependencies)) {
+          if (![...rows.values()].some((row) => row.name === name)) rows.set(name, { id: name, name, kind: null, version: null, enabled: null });
+        }
+        inventory = { status: 'ready', rows: [...rows.values()], detail: '只读本地安装清单；运行启用状态与实际版本未知' };
+      }
+    }
+    if (!inventory) {
+      const result = await this.cooperative.readInventory();
+      if (result.ok) inventory = result.inventory;
+    }
+    this.passiveInventoryState = inventory ?? { status: 'unavailable', rows: [] };
+    this.passiveCache = null;
+    return inventory ? { ok: true, inventory, error: undefined } : { ok: false, error: 'inventory-unavailable' };
   }
 
   private passiveReport(force = false) {
@@ -645,6 +691,7 @@ export const CHECKUP_WORLD: WorldDefinition<CheckupSection> = {
     cfg: ctx.cfg,
     botDir: ctx.botDir,
     dataDir: ctx.dataDir,
+    homeDir: (ctx as WorldContext<CheckupSection> & { homeDir?: string }).homeDir,
     botName: ctx.botName,
     timezone: ctx.timezone,
     packageDir: ctx.packageDir,
@@ -662,6 +709,7 @@ export function createCooperativeCheckupDefinition(
     create: (ctx) => new CheckupWorld({
       cfg: ctx.cfg, botDir: ctx.botDir, dataDir: ctx.dataDir, botName: ctx.botName,
       timezone: ctx.timezone, packageDir: ctx.packageDir,
+      homeDir: (ctx as WorldContext<CheckupSection> & { homeDir?: string }).homeDir,
       memoryDir: join(ctx.botDir, 'workspace'), cooperativeHost: hostFactory(ctx),
     }),
   };
