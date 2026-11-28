@@ -185,22 +185,36 @@ test('stop retains the in-flight reservation, accounts it, and never issues a se
   assert.equal(engine.run.usage.inputTokens, 71);
 });
 
-test('a failed billable attempt is counted once and not scored as a model failure', async () => {
+test('a single failed billable attempt does not abort remaining cases, while 3 consecutive failures circuit-break', async () => {
   let calls = 0;
-  const { engine } = fixture({ execute: async () => { calls += 1; return { ok: false, text: 'private provider error', inputTokens: 80, outputTokens: 0, costCny: .002 }; } });
-  launch(engine); await engine.task;
-  assert.equal(calls, 1);
-  assert.equal(engine.run.state, 'paused');
-  assert.equal(engine.run.usage.inputTokens, 80);
-  assert.equal(engine.run.results[0].outcome, 'invalid');
-  assert.doesNotMatch(deepReportText(engine.run), /private provider error/);
+  const { engine: single } = fixture({
+    execute: async ({ testCase }) => {
+      calls += 1;
+      if (calls === 2) return { ok: false, text: 'private provider error', inputTokens: 80, outputTokens: 0, costCny: .002 };
+      return { ok: true, text: JSON.stringify(testCase.expected), inputTokens: 100, outputTokens: 10, costCny: .001 };
+    },
+  });
+  launch(single); await single.task;
+  assert.equal(calls, 20);
+  assert.equal(single.run.state, 'completed');
+  assert.equal(single.run.results[1].outcome, 'invalid');
+  assert.equal(single.run.results[2].outcome, 'pass');
+  assert.doesNotMatch(deepReportText(single.run), /private provider error/);
+
+  let streakCalls = 0;
+  const { engine: streak } = fixture({ execute: async () => { streakCalls += 1; return { ok: false, text: 'private provider error', inputTokens: 80, outputTokens: 0, costCny: .002 }; } });
+  launch(streak); await streak.task;
+  assert.equal(streakCalls, 3);
+  assert.equal(streak.run.state, 'paused');
+  assert.equal(streak.run.usage.inputTokens, 240);
+  assert.equal(streak.run.results[0].outcome, 'invalid');
 });
 
-test('unknown usage is not zero and no second request can follow it', async () => {
+test('unknown usage is not zero and 3 consecutive unknown-usage failures pause the run', async () => {
   let calls = 0;
   const { engine } = fixture({ execute: async () => { calls += 1; throw Error('secret-token-in-provider-error'); } });
   launch(engine); await engine.task;
-  assert.equal(calls, 1);
+  assert.equal(calls, 3);
   assert.equal(engine.run.reason, 'usage-unavailable');
   assert.equal(engine.run.usage.complete, false);
   assert.ok(engine.run.unsettled.maxCostCny > 0);
@@ -220,13 +234,28 @@ test('config changes between requests pause before any additional charge', async
   assert.equal(f.engine.run.reason, 'configuration-changed');
 });
 
-test('executor cap violation is surfaced and halts later requests', async () => {
-  const { engine } = fixture({ execute: async () => ({ ok: true, text: '{}', inputTokens: 1000000, outputTokens: 10, costCny: 10 }) });
-  launch(engine); await engine.task;
-  assert.equal(engine.run.requests, 1);
-  assert.equal(engine.run.reason, 'executor-limit-violation');
-  assert.equal(engine.run.usage.costCny, 10);
-  assert.equal(engine.run.results[0].outcome, 'invalid');
+test('single executor cap violation skips only that case unless total budget is exceeded or 3 consecutive fail', async () => {
+  let calls = 0;
+  const { engine: isolated } = fixture({
+    execute: async ({ testCase }) => {
+      calls += 1;
+      if (calls === 1) return { ok: true, text: '{}', inputTokens: 100, outputTokens: 600, costCny: .001 };
+      return { ok: true, text: JSON.stringify(testCase.expected), inputTokens: 100, outputTokens: 10, costCny: .001 };
+    },
+  });
+  launch(isolated); await isolated.task;
+  assert.equal(calls, 20);
+  assert.equal(isolated.run.state, 'completed');
+  assert.equal(isolated.run.results[0].outcome, 'invalid');
+  assert.equal(isolated.run.results[0].reason, 'executor-limit-violation');
+  assert.equal(isolated.run.results[1].outcome, 'pass');
+
+  const { engine: overBudget } = fixture({ execute: async () => ({ ok: true, text: '{}', inputTokens: 1000000, outputTokens: 10, costCny: 10 }) });
+  launch(overBudget); await overBudget.task;
+  assert.equal(overBudget.run.requests, 1);
+  assert.equal(overBudget.run.reason, 'budget-reached');
+  assert.equal(overBudget.run.usage.costCny, 10);
+  assert.equal(overBudget.run.results[0].outcome, 'invalid');
 });
 
 test('journal failure prevents any model request', () => {

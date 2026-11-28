@@ -24,7 +24,7 @@ test('unavailable native executor renders an honest blocker and disables model l
   const engine = new DeepCheckup({ model: () => 'native-model', save() {} });
   const ctx = setup(engine);
   await panels.panels['deep-checkup'].mount(ctx);
-  assert.match(ctx.root.textContent, /当前 COO 未提供隔离执行器/);
+  assert.match(ctx.root.textContent, /无法检测|当前环境尚未就绪/);
   assert.match(ctx.root.textContent, /持久记忆/);
   assert.equal(control(ctx.root, '开始深度体检').disabled, true);
   await control(ctx.root, '结果报告').listeners.click[0]();
@@ -37,7 +37,7 @@ test('report explains results before evidence and keeps prices out of every visi
   const executor = {
     inspect: () => ({ model: 'fixture', fingerprint: 'v1', dataScope: '合成数据', contextWindow: 128000,
       capabilities: Object.fromEntries(['isolated', 'noTools', 'noMemoryWrites', 'singleAttempt', 'hardLimits', 'usage', 'abort'].map((key) => [key, true])) }),
-    reserve: () => ({ inputTokens: 500, outputTokens: 128, maxCostCny: .001 }),
+    reserve: () => ({ inputTokens: 500, outputTokens: 512, maxCostCny: .001 }),
     execute: async ({ testCase }) => ({ ok: true, text: JSON.stringify(testCase.expected), inputTokens: 100, outputTokens: 10, costCny: .001 }),
   };
   const engine = new DeepCheckup({ executor, save() {} });
@@ -68,7 +68,7 @@ test('quote enables consent, and changing a selected group invalidates it', asyn
   const executor = {
     inspect: () => ({ model: 'fixture', fingerprint: 'v1', dataScope: '合成数据', contextWindow: 128000,
       capabilities: Object.fromEntries(['isolated', 'noTools', 'noMemoryWrites', 'singleAttempt', 'hardLimits', 'usage', 'abort'].map((key) => [key, true])) }),
-    reserve: () => ({ inputTokens: 500, outputTokens: 128, maxCostCny: .001 }),
+    reserve: () => ({ inputTokens: 500, outputTokens: 512, maxCostCny: .001 }),
     execute: async () => { throw Error('not launched'); },
   };
   const engine = new DeepCheckup({ executor, save() {} });

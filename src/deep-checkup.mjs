@@ -139,7 +139,7 @@ export function deepReport(run, inventory = null) {
         : incomplete ? '已完成的有效样本均通过，但测试尚不完整，暂时不能给出完整结论。'
           : '本次所选项目的合成样本均通过，暂未观察到这些场景中的异常；日常长对话与记忆插件表现仍需另测。'}`,
     evidence: run.results.map(({ id, outcome, reason }) => ({ id,
-      outcome: { pass: '通过', fail: '未通过', invalid: '无效' }[outcome] ?? '未知',
+      outcome: { pass: '通过', fail: '答错', invalid: '无法答题' }[outcome] ?? '未知',
       reason: RESULT_REASONS[reason] ?? '判定原因未知，需核查执行记录',
     })),
     lengths: [...new Set(run.results.filter((row) => row.group === 'context').map((row) => row.lengthLabel))].map((label) => {
@@ -169,7 +169,7 @@ export function deepReportText(run, inventory = null) {
     ...(run.unsettled ? [`未回报请求的预留上限：输入 ${run.unsettled.inputTokens} / 输出 ${run.unsettled.outputTokens} Token；预留不是实耗，不能与已回报用量直接相加。`] : []),
     '分项结果与解读：',
     ...report.groups.flatMap((row) => [
-      `${row.name}：${row.outcomeLabel}；有效 ${row.valid}/${row.planned}；通过 ${row.pass}，未通过 ${row.fail}，无效 ${row.invalid}，未执行 ${row.notRun}；证据强度：${row.evidenceLabel}`,
+      `${row.name}：${row.outcomeLabel}；有效 ${row.valid}/${row.planned}；通过 ${row.pass}，答错 ${row.fail}，无法答题 ${row.invalid}，未执行 ${row.notRun}；证据强度：${row.evidenceLabel}`,
       `测了什么：${row.purpose}`, `对你意味着什么：${row.explanation}`, `建议下一步：${row.nextStep}`,
     ]),
     '如何读这些结果：有效样本是可完成判分的回答；无效请求不参与能力判定。通过仅代表符合本题预设答案。证据强度描述样本覆盖，不是统计置信度或长期可靠率。',
@@ -231,7 +231,7 @@ export class DeepCheckup {
     if (this.run?.unsettled) return { ok: true, ready: false, capability, disclosure: DEEP_DISCLOSURE, plan: null, blockers: ['previous-usage-unsettled'] };
     const groups = options.groups ?? DEEP_GROUPS;
     if (!Array.isArray(groups) || !groups.length || groups.length > DEEP_GROUPS.length || new Set(groups).size !== groups.length || groups.some((group) => !DEEP_GROUPS.includes(group))) return { ok: false, error: 'invalid-groups' };
-    const limits = { maxRequests: 20, maxInputTokens: 160000, maxOutputTokens: 4096, maxCostCny: 2, ...options.limits };
+    const limits = { maxRequests: 20, maxInputTokens: 160000, maxOutputTokens: 16384, maxCostCny: 2, ...options.limits };
     if (!integer(limits.maxRequests) || limits.maxRequests < 1 || limits.maxRequests > 40
       || !integer(limits.maxInputTokens) || limits.maxInputTokens < 1 || limits.maxInputTokens > 1000000
       || !integer(limits.maxOutputTokens) || limits.maxOutputTokens < 1 || limits.maxOutputTokens > 16384
@@ -282,6 +282,7 @@ export class DeepCheckup {
   }
 
   async execute(plan) {
+    let consecutiveFailures = 0;
     for (const [index, testCase] of plan.cases.entries()) {
       if (this.run.state !== 'running' || this.closed) break;
       const cap = this.inspect();
@@ -318,17 +319,23 @@ export class DeepCheckup {
       if (metered) score = exceeded ? { outcome: 'invalid', reason: 'executor-limit-violation' }
         : response.ok !== true ? { outcome: 'invalid', reason: cancelled ? 'cancelled' : 'request-failed' }
           : timedOut ? { outcome: 'invalid', reason: 'request-timeout' } : scoreDeepCase(testCase, response.text);
-      this.run.results.push({ id: testCase.id, group: testCase.group, lengthLabel: testCase.lengthLabel ?? null, position: testCase.position ?? null, ...score });
-      if (!metered) this.run.reason = 'usage-unavailable';
-      else if (exceeded) this.run.reason = 'executor-limit-violation';
-      else if (timedOut) this.run.reason = 'request-timeout';
-      else if (response.ok !== true && !cancelled) {
-        this.run.reason = 'request-failed';
-        if (typeof response?.detail === 'string' && response.detail.trim()) this.run.reasonDetail = response.detail.trim().slice(0, 180);
+      const caseDetail = typeof response?.detail === 'string' && response.detail.trim() ? response.detail.trim().slice(0, 180) : undefined;
+      this.run.results.push({ id: testCase.id, group: testCase.group, lengthLabel: testCase.lengthLabel ?? null, position: testCase.position ?? null, ...score, ...(caseDetail ? { detail: caseDetail } : {}) });
+      if (caseDetail) this.run.reasonDetail = caseDetail;
+      const caseIssue = !metered ? 'usage-unavailable'
+        : exceeded ? 'executor-limit-violation'
+          : timedOut ? 'request-timeout'
+            : (response.ok !== true && !cancelled) ? 'request-failed' : null;
+      if (caseIssue && !cancelled) {
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= 3) this.run.reason = caseIssue;
+      } else {
+        consecutiveFailures = 0;
       }
       if (!this.persist()) this.run.reason = 'storage-unavailable';
       if (this.run.reason) break;
     }
+    if (!this.run.reason && this.run.state === 'running') this.run.unsettled = null;
     this.run.current = null;
     this.run.state = this.run.state === 'stopping' || this.closed ? 'stopped' : this.run.reason ? 'paused' : 'completed';
     this.run.endedAt = this.now();

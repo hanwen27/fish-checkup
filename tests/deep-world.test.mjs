@@ -41,7 +41,7 @@ function providerFixture(t, baseUrl) {
   mkdirSync(join(dir, 'companion'));
   mkdirSync(join(dir, 'providers', 'fixture'), { recursive: true });
   writeFileSync(join(dir, 'companion', 'config.json'), JSON.stringify({ activeProvider: 'fixture' }));
-  const config = { baseUrl, secret: 'fixture-secret', spec: { model: 'fixture-model', contextWindow: 128000, maxTokens: 256 } };
+  const config = { baseUrl, secret: 'fixture-secret', spec: { model: 'fixture-model', contextWindow: 128000, maxTokens: 1024 } };
   const save = () => writeFileSync(join(dir, 'providers', 'fixture', 'config.json'), JSON.stringify(config));
   save();
   return { dir, config, save, executor: createBuiltinIsolatedExecutor({ dataDir: dir, homeDir: dir }) };
@@ -95,7 +95,7 @@ test('builtin inspection handles env keys, configuration changes and hard local 
   assert.notEqual(executor.inspect().fingerprint, first);
   assert.doesNotMatch(JSON.stringify(executor.inspect()), /env-secret/);
   const testCase = { messages: [{ role: 'user', content: 'hello' }], maxOutputTokens: 128 };
-  assert.throws(() => executor.reserve({ ...testCase, maxOutputTokens: 257 }));
+  assert.throws(() => executor.reserve({ ...testCase, maxOutputTokens: 1025 }));
   assert.throws(() => executor.reserve({ ...testCase, messages: [{ role: 'user', content: 'x'.repeat(128000) }] }));
   const engine = new DeepCheckup({ executor, save() {} });
   const preflight = engine.preflight();

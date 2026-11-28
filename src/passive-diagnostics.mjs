@@ -242,14 +242,14 @@ export function collectPassiveDiagnostics({ dataDir, snapshot, contextWindow, in
       if (row?.name && row?.label) pluginLabels[String(row.name)] = String(row.label);
     }
   }
-  return { version: '1.2.0', method: 'passive-1', generatedAt: now, sampleDays, usage, activity, pluginLabels,
+  return { version: '1.2.1', method: 'passive-1', generatedAt: now, sampleDays, usage, activity, pluginLabels,
     memory: buildMemoryReport(snapshot, { inventory, activity }), context: buildContextReport(records, snapshot, { contextWindow, since, until }),
     disclosure: '本页只读本机已有记录，不额外调用模型，不写入正式记忆。所展示的是采样范围内的已知统计；缺报、读取失败和范围上限均披露，页面不自动调整配置。' };
 }
 
 export function passiveReportText(report) {
   const { usage: u, context: c, memory: m, activity: a } = report;
-  return ['鱼鱼体检 1.2.0 · 日常被动诊断', report.disclosure,
+  return ['鱼鱼体检 1.2.1 · 日常被动诊断', report.disclosure,
     `窗口：${new Date(u.since).toISOString()} — ${new Date(u.until).toISOString()}；时区 ${u.timezone}`,
     `Token：${u.summary}`, `已知输入 ${u.inputKnown ? u.input : '未知'}；已知输出 ${u.outputKnown ? u.output : '未知'}；已知合计 ${u.inputKnown + u.outputKnown ? u.knownTotal : '未知'}；记录 ${u.requests}；完整计量 ${u.complete}`,
     `读取状态 ${u.state}；采样截断 ${u.source.limited ? '是' : '否'}；坏行 ${u.source.bad}；时间无效 ${u.source.invalidTime}；去重 ${u.source.duplicates}`, u.limits,

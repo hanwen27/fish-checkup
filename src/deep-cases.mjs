@@ -6,7 +6,7 @@ export function makeDeepCases(seed, groups = DEEP_GROUPS) {
   const marker = String(seed).replace(/[^a-z0-9]/gi, '').slice(0, 12);
   const cases = [];
   const add = (id, group, messages, expected, extra = {}) => cases.push({
-    id, group, messages, expected, maxOutputTokens: 128, ...extra,
+    id, group, messages, expected, maxOutputTokens: 512, ...extra,
   });
   const system = { role: 'system', content: '这是隔离的合成测试。禁止调用工具、写入记忆或执行外部动作。只输出一个 JSON 对象，不加代码围栏或额外文字。' };
   if (groups.includes('context')) {
@@ -60,15 +60,43 @@ export function makeDeepCases(seed, groups = DEEP_GROUPS) {
   return cases;
 }
 
-export function scoreDeepCase(testCase, text) {
-  if (typeof text !== 'string' || text.length > 4096) return { outcome: 'invalid', reason: 'response-unavailable' };
-  try {
-    const actual = JSON.parse(text.trim());
-    if (!actual || Array.isArray(actual) || typeof actual !== 'object') return { outcome: 'fail', reason: 'format' };
-    const keys = Object.keys(testCase.expected);
-    const passed = Object.keys(actual).length === keys.length && keys.every((key) => actual[key] === testCase.expected[key]);
-    return { outcome: passed ? 'pass' : 'fail', reason: passed ? 'exact-match' : 'value-or-format' };
-  } catch {
-    return { outcome: 'fail', reason: 'format' };
+function normalizeValue(expected, actual) {
+  if (actual === expected) return true;
+  if (typeof expected === 'boolean') {
+    if (typeof actual === 'string') return actual.trim().toLowerCase() === String(expected);
+    return false;
   }
+  if (typeof expected === 'string' && typeof actual === 'string') {
+    const e = expected.trim();
+    const a = actual.trim();
+    if (a === e || a.toLowerCase() === e.toLowerCase()) return true;
+    // Allow minor punctuation/spacing variants for comprehension answers like "B-A-C" or "B, A, C"
+    if (/^[A-Z]{1,4}$/.test(e) && a.replace(/[^a-z]/gi, '').toUpperCase() === e) return true;
+  }
+  return false;
+}
+
+export function scoreDeepCase(testCase, text) {
+  if (typeof text !== 'string' || text.length > 8192) return { outcome: 'invalid', reason: 'response-unavailable' };
+  // Strip reasoning tags emitted by thinking models before scoring the actual answer.
+  let raw = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  const fenced = raw.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced) raw = fenced[1].trim();
+  const tryParse = (str) => {
+    try {
+      const parsed = JSON.parse(str);
+      return parsed && !Array.isArray(parsed) && typeof parsed === 'object' ? parsed : null;
+    } catch { return null; }
+  };
+  let actual = tryParse(raw);
+  // For non-instruction checks, tolerate brief polite wrapper text around a single JSON object.
+  if (!actual && testCase?.group !== 'instructions') {
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start >= 0 && end > start) actual = tryParse(raw.slice(start, end + 1));
+  }
+  if (!actual) return { outcome: 'fail', reason: 'format' };
+  const keys = Object.keys(testCase.expected);
+  const passed = Object.keys(actual).length === keys.length && keys.every((key) => normalizeValue(testCase.expected[key], actual[key]));
+  return { outcome: passed ? 'pass' : 'fail', reason: passed ? 'exact-match' : 'value-or-format' };
 }

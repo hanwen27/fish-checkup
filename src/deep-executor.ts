@@ -106,15 +106,26 @@ export function createBuiltinIsolatedExecutor({ dataDir, homeDir, botDir }: { da
     const model = value?.spec?.model;
     if (typeof model !== 'string' || !model.trim()) throw Error('provider-model-unavailable');
     let endpoint: URL;
+    let protocol: 'openai' | 'anthropic' | 'gemini' = 'openai';
     try {
       endpoint = new URL(value.baseUrl);
       if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) throw Error();
       const rawPath = endpoint.pathname.replace(/\/+$/, '');
       const kind = String(value.kind ?? '').toLowerCase();
-      if (kind === 'anthropic' || /anthropic\.com$/i.test(endpoint.hostname) || (/\/v1beta$/i.test(rawPath) && !/openai/i.test(rawPath))) {
+      if (kind === 'gemini-gateway' || /robinfrontend-pa\.googleapis\.com$/i.test(endpoint.hostname)) {
         throw Error('provider-protocol-unsupported');
       }
-      endpoint.pathname = /\/chat\/completions$/.test(rawPath) ? rawPath : `${rawPath || '/v1'}/chat/completions`;
+      if (kind === 'anthropic' || /anthropic\.com$/i.test(endpoint.hostname)) {
+        protocol = 'anthropic';
+        endpoint.pathname = /\/messages$/.test(rawPath) ? rawPath : `${rawPath || '/v1'}/messages`;
+      } else if ((kind === 'gemini' || kind === 'google' || /\/v1beta$/i.test(rawPath)) && !/openai/i.test(rawPath)) {
+        protocol = 'gemini';
+        const base = rawPath || '/v1beta';
+        endpoint.pathname = /:generateContent$/i.test(base) ? base : `${base}/models/${encodeURIComponent(model.trim())}:generateContent`;
+      } else {
+        protocol = 'openai';
+        endpoint.pathname = /\/chat\/completions$/.test(rawPath) ? rawPath : `${rawPath || '/v1'}/chat/completions`;
+      }
     } catch (e) {
       if (e instanceof Error && e.message === 'provider-protocol-unsupported') throw e;
       throw Error('provider-endpoint-unavailable');
@@ -150,14 +161,14 @@ export function createBuiltinIsolatedExecutor({ dataDir, homeDir, botDir }: { da
     const maxTokens = Number(value.spec.maxTokens ?? 8192);
     if (!Number.isSafeInteger(contextWindow) || contextWindow < 512) throw Error('context-window-unavailable');
     if (!Number.isSafeInteger(maxTokens) || maxTokens < 1) throw Error('provider-output-limit-unavailable');
-    const fingerprint = createHash('sha256').update(JSON.stringify({ provider, model, endpoint: endpoint.href, contextWindow, maxTokens, secret, dataScope })).digest('hex');
-    return { model, endpoint, secret, contextWindow, maxTokens, fingerprint };
+    const fingerprint = createHash('sha256').update(JSON.stringify({ provider, protocol, model, endpoint: endpoint.href, contextWindow, maxTokens, secret, dataScope })).digest('hex');
+    return { model, protocol, endpoint, secret, contextWindow, maxTokens, fingerprint };
   }
   function reserve(testCase: unknown, settings = config()) {
     const value = testCase as IsolatedCase;
     if (!Array.isArray(value?.messages) || !value.messages.length || value.messages.some((row) => !['system', 'user', 'assistant'].includes(row.role) || typeof row.content !== 'string')) throw Error('invalid-test-case');
     const outputTokens = value.maxOutputTokens;
-    const inputTokens = 32 + value.messages.reduce((total, row) => total + 16 + Buffer.byteLength(row.role + row.content, 'utf8'), 0);
+    const inputTokens = 256 + value.messages.reduce((total, row) => total + 16 + Buffer.byteLength(row.role + row.content, 'utf8'), 0);
     if (!Number.isSafeInteger(outputTokens) || outputTokens < 1 || outputTokens > settings.maxTokens || inputTokens + outputTokens > settings.contextWindow) throw Error('reservation-or-context-unavailable');
     return { inputTokens, outputTokens, maxCostCny: 0 };
   }
@@ -177,18 +188,28 @@ export function createBuiltinIsolatedExecutor({ dataDir, homeDir, botDir }: { da
       const required = reserve(testCase, settings);
       if (required.inputTokens > reservation.inputTokens || required.outputTokens !== reservation.outputTokens || reservation.maxCostCny < 0) throw Error('reservation-or-context-unavailable');
       signal.throwIfAborted();
-      const useCompletionCap = /^(?:o[134](?:-|$)|gpt-5)/i.test(settings.model.trim());
-      const payload: Record<string, unknown> = {
-        model: settings.model,
-        messages: (testCase as IsolatedCase).messages.map(({ role, content }) => ({ role, content })),
-        stream: false,
-      };
-      if (useCompletionCap) payload.max_completion_tokens = required.outputTokens;
-      else payload.max_tokens = required.outputTokens;
+      const msgs = (testCase as IsolatedCase).messages.map(({ role, content }) => ({ role, content }));
+      let headers: Record<string, string>;
+      let payload: Record<string, unknown>;
+      if (settings.protocol === 'anthropic') {
+        const sysText = msgs.filter((m) => m.role === 'system').map((m) => m.content).join('\n');
+        const turns = msgs.filter((m) => m.role !== 'system').map(({ role, content }) => ({ role: role === 'assistant' ? 'assistant' : 'user', content }));
+        headers = { 'Content-Type': 'application/json', 'x-api-key': settings.secret, 'anthropic-version': '2023-06-01' };
+        payload = { model: settings.model, max_tokens: required.outputTokens, ...(sysText ? { system: sysText } : {}), messages: turns };
+      } else if (settings.protocol === 'gemini') {
+        const sysText = msgs.filter((m) => m.role === 'system').map((m) => m.content).join('\n');
+        const contents = msgs.filter((m) => m.role !== 'system').map(({ role, content }) => ({ role: role === 'assistant' ? 'model' : 'user', parts: [{ text: content }] }));
+        headers = { 'Content-Type': 'application/json', 'x-goog-api-key': settings.secret };
+        payload = { ...(sysText ? { systemInstruction: { parts: [{ text: sysText }] } } : {}), contents, generationConfig: { maxOutputTokens: required.outputTokens } };
+      } else {
+        const useCompletionCap = /^(?:o[134](?:-|$)|gpt-5)/i.test(settings.model.trim());
+        headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.secret}` };
+        payload = { model: settings.model, messages: msgs, stream: false };
+        if (useCompletionCap) payload.max_completion_tokens = required.outputTokens;
+        else payload.max_tokens = required.outputTokens;
+      }
       const response = await fetch(settings.endpoint, {
-        method: 'POST', redirect: 'error', signal,
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.secret}` },
-        body: JSON.stringify(payload),
+        method: 'POST', redirect: 'error', signal, headers, body: JSON.stringify(payload),
       });
       const clientRejected = !response.ok && [400, 401, 403, 404].includes(response.status);
       let value: any;
@@ -198,10 +219,25 @@ export function createBuiltinIsolatedExecutor({ dataDir, homeDir, botDir }: { da
         }
         throw Error('provider-response-invalid');
       }
-      const usage = value?.usage;
-      const text = value?.choices?.[0]?.message?.content;
-      const inTok = Number.isSafeInteger(usage?.prompt_tokens) && usage.prompt_tokens >= 0 ? usage.prompt_tokens : (clientRejected ? 0 : NaN);
-      const outTok = Number.isSafeInteger(usage?.completion_tokens) && usage.completion_tokens >= 0 ? usage.completion_tokens : (clientRejected ? 0 : NaN);
+      let text: unknown;
+      let rawIn: unknown;
+      let rawOut: unknown;
+      if (settings.protocol === 'anthropic') {
+        text = Array.isArray(value?.content) ? value.content.filter((b: any) => b?.type === 'text').map((b: any) => b.text).join('') : undefined;
+        rawIn = value?.usage?.input_tokens;
+        rawOut = value?.usage?.output_tokens;
+      } else if (settings.protocol === 'gemini') {
+        const parts = value?.candidates?.[0]?.content?.parts;
+        text = Array.isArray(parts) ? parts.map((p: any) => p?.text ?? '').join('') : undefined;
+        rawIn = value?.usageMetadata?.promptTokenCount;
+        rawOut = value?.usageMetadata?.candidatesTokenCount;
+      } else {
+        text = value?.choices?.[0]?.message?.content;
+        rawIn = value?.usage?.prompt_tokens;
+        rawOut = value?.usage?.completion_tokens;
+      }
+      const inTok = Number.isSafeInteger(rawIn) && (rawIn as number) >= 0 ? (rawIn as number) : (clientRejected ? 0 : NaN);
+      const outTok = Number.isSafeInteger(rawOut) && (rawOut as number) >= 0 ? (rawOut as number) : (clientRejected ? 0 : NaN);
       const ok = response.ok && typeof text === 'string';
       const errMsg = value?.error?.message ?? value?.message ?? (typeof value?.error === 'string' ? value.error : '');
       const detail = ok ? undefined : (!response.ok ? sanitizeErrorDetail(response.status, errMsg) : '响应缺少有效文本内容');
