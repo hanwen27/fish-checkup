@@ -14,7 +14,6 @@
   "files": [
     "src",
     "dist",
-    "assets/personality",
     "assets/quiz.zh.json",
     "assets/icon.png",
     "assets/screenshot-1.png",
