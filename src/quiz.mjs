@@ -236,7 +236,7 @@ export function scoreCreative(quiz, responses) {
     const id = typeof item?.id === 'string' ? item.id.trim() : '';
     const text = typeof item?.response === 'string' ? item.response.trim() : '';
     if (!id || !text || !prompts.has(id)) continue;
-    rows.push({ id, response: text.slice(0, 1000), length: [...text].length });
+    rows.push({ id, question: prompts.get(id)?.text ?? '', response: text.slice(0, 1000), length: [...text].length });
   }
   if (rows.length === 0) return { taken: false, responses: [], tags: [], blurb: null };
   const joined = rows.map((r) => r.response).join(' ');

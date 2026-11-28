@@ -174,21 +174,55 @@ export function buildMemoryReport(snapshot, { inventory = null, activity = null 
     if (id === 'self-checkup' || pkg === 'cortico-world-self-checkup') return false;
     return memoryRe.test(`${id} ${pkg} ${item.label ?? ''} ${item.description ?? ''}`);
   });
+  const cleanDesc = (raw, fallback) => {
+    const t = String(raw ?? '').split(/\s*\/\s*Fish-brain:/i)[0].replace(/\s+/g, ' ').trim();
+    if (!t) return fallback;
+    return t.length > 56 ? `${t.slice(0, 56)}…` : t;
+  };
+  let pluginCalls = 0, pluginFailures = 0;
   for (const item of memExtensions) {
     const id = label(item.id, 'unknown');
     const found = activity?.rows?.find((r) => r.id === id);
+    const calls = found?.calls ?? 0;
+    const failures = found?.failures ?? 0;
+    if (item.enabled === true) { pluginCalls += calls; pluginFailures += failures; }
     rows.push({ id, name: label(item.label, label(item.name, id)), packageName: label(item.name, id), description: label(item.description, ''), kind: label(item.kind, '记忆插件'), version: label(item.version), installed: true,
-      enabled: typeof item.enabled === 'boolean' ? item.enabled : null, active: null, tested: false, status: 'listed',
+      enabled: typeof item.enabled === 'boolean' ? item.enabled : null, active: null, tested: false, status: 'listed', calls, failures, medianMs: found?.medianMs ?? null,
       evidence: found ? `近窗口调用 ${found.calls} 次${found.failures ? `（失败 ${found.failures} 次）` : ''}` : '近窗口无工具调用记录',
-      detail: label(item.description, '已从本机宿主扩展清单识别。') });
+      detail: cleanDesc(item.description, '已从本机宿主扩展清单识别。') });
   }
   const m = snapshot?.memory;
   const compatible = m?.ok && (m.entries || m.retrieve);
   const telemetry = compatible ? { name: '记忆检索日志统计', sourceVerified: false, count: m.entries?.total ?? null,
     retrievals: m.retrieve?.total ?? null, hitRate: m.retrieve?.hitRate ?? null, injectedRate: m.retrieve?.injectedRate ?? null, avgMs: m.retrieve?.avgMs ?? null,
     detail: '来自本机记忆日志（至少 14 天窗口），展示记忆条目数、检索次数、命中率与平均耗时。' } : null;
-  const enabledMemCount = memExtensions.filter((item) => item.enabled === true).length;
+  const enabledMem = memExtensions.filter((item) => item.enabled === true);
+  const enabledMemCount = enabledMem.length;
+  const enabledNames = enabledMem.map((item) => label(item.label, label(item.name, item.id)));
+  const handoffFiles = Array.isArray(snapshot?.handoffs?.files) ? snapshot.handoffs.files : [];
+  const workspaceReady = base?.state === 'ready';
+  const modeLabel = enabledNames.length ? `原生记忆 + ${enabledNames.join(' / ')}` : 'Coo 原生工作区记忆';
+  const headline = !workspaceReady
+    ? '本地工作区记忆目录未就绪，请先检查配置路径。'
+    : enabledNames.length
+      ? `当前由「${modeLabel}」协同维持记忆，本地读写正常${pluginCalls > 0 ? `，近期记忆插件活跃 ${pluginCalls} 次` : ''}。`
+      : `当前由「Coo 原生工作区记忆」维持记忆，本地已可读 ${base?.readable ?? 0} 个记忆文件，运行正常。`;
   return { inventoryState: inventoryReady ? 'ready' : inventory?.status ?? 'not-read', rows, telemetry,
+    workspace: { readable: workspaceReady, files: base?.readable ?? 0, limited: Boolean(base?.limited) },
+    overview: {
+      tone: workspaceReady ? 'ok' : 'warn',
+      badge: workspaceReady ? '记忆状态正常' : '需检查目录',
+      headline,
+      modeLabel,
+      totalExtensions: allExtensions.length,
+      memPluginCount: memExtensions.length,
+      enabledPluginCount: enabledMemCount,
+      enabledNames,
+      pluginCalls,
+      pluginFailures,
+      handoffsCount: handoffFiles.length,
+      entriesTotal: m?.entries?.total ?? null,
+    },
     summary: inventoryReady
       ? `已扫描 ${allExtensions.length} 个扩展，识别到 ${memExtensions.length} 个记忆相关插件（已启用 ${enabledMemCount} 个）。`
       : '宿主清单尚未提供，无法确认已安装的记忆插件；当前仅展示本地工作区记忆文件与兼容日志。',
@@ -208,14 +242,14 @@ export function collectPassiveDiagnostics({ dataDir, snapshot, contextWindow, in
       if (row?.name && row?.label) pluginLabels[String(row.name)] = String(row.label);
     }
   }
-  return { version: '1.1.2', method: 'passive-1', generatedAt: now, sampleDays, usage, activity, pluginLabels,
+  return { version: '1.2.0', method: 'passive-1', generatedAt: now, sampleDays, usage, activity, pluginLabels,
     memory: buildMemoryReport(snapshot, { inventory, activity }), context: buildContextReport(records, snapshot, { contextWindow, since, until }),
     disclosure: '本页只读本机已有记录，不额外调用模型，不写入正式记忆。所展示的是采样范围内的已知统计；缺报、读取失败和范围上限均披露，页面不自动调整配置。' };
 }
 
 export function passiveReportText(report) {
   const { usage: u, context: c, memory: m, activity: a } = report;
-  return ['鱼鱼体检 1.1.2 · 日常被动诊断', report.disclosure,
+  return ['鱼鱼体检 1.2.0 · 日常被动诊断', report.disclosure,
     `窗口：${new Date(u.since).toISOString()} — ${new Date(u.until).toISOString()}；时区 ${u.timezone}`,
     `Token：${u.summary}`, `已知输入 ${u.inputKnown ? u.input : '未知'}；已知输出 ${u.outputKnown ? u.output : '未知'}；已知合计 ${u.inputKnown + u.outputKnown ? u.knownTotal : '未知'}；记录 ${u.requests}；完整计量 ${u.complete}`,
     `读取状态 ${u.state}；采样截断 ${u.source.limited ? '是' : '否'}；坏行 ${u.source.bad}；时间无效 ${u.source.invalidTime}；去重 ${u.source.duplicates}`, u.limits,

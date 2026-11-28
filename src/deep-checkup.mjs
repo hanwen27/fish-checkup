@@ -80,6 +80,14 @@ const GROUP_READINGS = {
     action: '在相同条件下复测事实更正；若要检查跨会话记忆，需要另测所用记忆插件的写入和召回。',
     passAction: '本项无需据此修改记忆插件；跨会话能否记住，仍需单独验证。',
   },
+  comprehension: {
+    name: '逻辑与语义理解',
+    purpose: '通过多条件筛选、潜台词识别、逻辑矛盾判断与因果排序，检验日常听懂话与条理清晰度。',
+    pass: '本次 4 道逻辑与语义题全部答对，说明模型在常规条件筛选、反话识别与因果推理上表现清醒。',
+    fail: '本次有逻辑或语义题未通过，说明在多条件约束、反讽或因果判断上出现偏差，建议复测确认。',
+    action: '先查看上方具体失分题，再决定是否需要调整系统提示或更换更强的推理模型。',
+    passAction: '日常理解与逻辑清晰度表现良好，保持当前配置即可。',
+  },
 };
 const RESULT_REASONS = {
   'exact-match': '字段及内容与预期一致', 'value-or-format': '字段、内容或格式与预期不一致',
@@ -88,7 +96,7 @@ const RESULT_REASONS = {
   cancelled: '请求被停止，本项无效', 'request-failed': '请求执行失败，本项无效', 'request-timeout': '请求超时，本项无效',
 };
 
-export function deepReport(run) {
+export function deepReport(run, inventory = null) {
   if (!run) return null;
   const groups = run.groups.map((group) => {
       const rows = run.results.filter((row) => row.group === group);
@@ -124,7 +132,7 @@ export function deepReport(run) {
     runId: run.id,
     state: run.state,
     groups,
-    memoryScope: deepMemoryScope(),
+    memoryScope: deepMemoryScope(inventory),
     coverageSummary,
     summary: `${coverageSummary} ${!groups.some((row) => row.valid) ? '本次尚无有效结果，暂时无法判断。'
       : anyFailure ? `本次发现未通过项，建议先复测对应场景。${incomplete ? '部分测试尚无完整有效结果。' : ''}这不等于模型整体能力下降或记忆插件异常。`
@@ -144,11 +152,12 @@ export function deepReport(run) {
   };
 }
 
-export function deepReportText(run) {
+export function deepReportText(run, inventory = null) {
   if (!run) return '尚无深度体检记录。';
-  const report = deepReport(run);
+  const report = deepReport(run, inventory);
+  const stopText = run.reason ? (run.reasonDetail ? `${run.reason}（${run.reasonDetail}）` : run.reason) : '无';
   return [
-    `深度体检 ${DEEP_METHOD} | ${run.id}`, `状态：${run.state}；停止原因：${run.reason || '无'}`,
+    `深度体检 ${DEEP_METHOD} | ${run.id}`, `状态：${run.state}；停止原因：${stopText}`,
     `模型：${run.model}；配置摘要：${run.fingerprint}`,
     '本轮检测项目：', report.coverageSummary,
     '结果速读：', report.summary,
@@ -221,7 +230,7 @@ export class DeepCheckup {
     if (ACTIVE.has(this.run?.state)) return { ok: false, error: 'already-running' };
     if (this.run?.unsettled) return { ok: true, ready: false, capability, disclosure: DEEP_DISCLOSURE, plan: null, blockers: ['previous-usage-unsettled'] };
     const groups = options.groups ?? DEEP_GROUPS;
-    if (!Array.isArray(groups) || !groups.length || groups.length > 3 || new Set(groups).size !== groups.length || groups.some((group) => !DEEP_GROUPS.includes(group))) return { ok: false, error: 'invalid-groups' };
+    if (!Array.isArray(groups) || !groups.length || groups.length > DEEP_GROUPS.length || new Set(groups).size !== groups.length || groups.some((group) => !DEEP_GROUPS.includes(group))) return { ok: false, error: 'invalid-groups' };
     const limits = { maxRequests: 20, maxInputTokens: 160000, maxOutputTokens: 4096, maxCostCny: 2, ...options.limits };
     if (!integer(limits.maxRequests) || limits.maxRequests < 1 || limits.maxRequests > 40
       || !integer(limits.maxInputTokens) || limits.maxInputTokens < 1 || limits.maxInputTokens > 1000000
@@ -313,7 +322,10 @@ export class DeepCheckup {
       if (!metered) this.run.reason = 'usage-unavailable';
       else if (exceeded) this.run.reason = 'executor-limit-violation';
       else if (timedOut) this.run.reason = 'request-timeout';
-      else if (response.ok !== true && !cancelled) this.run.reason = 'request-failed';
+      else if (response.ok !== true && !cancelled) {
+        this.run.reason = 'request-failed';
+        if (typeof response?.detail === 'string' && response.detail.trim()) this.run.reasonDetail = response.detail.trim().slice(0, 180);
+      }
       if (!this.persist()) this.run.reason = 'storage-unavailable';
       if (this.run.reason) break;
     }
@@ -357,7 +369,7 @@ export class DeepCheckup {
       if (statSync(path).size > 128000) throw Error('invalid-state');
       const value = JSON.parse(readFileSync(path, 'utf8'));
       if (value?.schema !== 1 || typeof value.id !== 'string' || !Array.isArray(value.results) || value.results.length > 40
-        || !Array.isArray(value.groups) || !value.groups.length || value.groups.length > 3 || value.groups.some((group) => !DEEP_GROUPS.includes(group)) || !value.plannedByGroup
+        || !Array.isArray(value.groups) || !value.groups.length || value.groups.length > DEEP_GROUPS.length || value.groups.some((group) => !DEEP_GROUPS.includes(group)) || !value.plannedByGroup
         || !['running', 'stopping', 'stopped', 'completed', 'paused', 'failed', 'interrupted'].includes(value.state)
         || typeof value.model !== 'string' || typeof value.fingerprint !== 'string' || !finite(value.startedAt)
         || !value.totals || !integer(value.totals.requests) || value.totals.requests > 40 || !integer(value.requests) || value.requests > 40
@@ -366,7 +378,7 @@ export class DeepCheckup {
         || !value.limits || !integer(value.limits.maxRequests) || !integer(value.limits.maxInputTokens) || !integer(value.limits.maxOutputTokens) || !finite(value.limits.maxCostCny)
         || !value.usage || typeof value.usage.complete !== 'boolean' || !finite(value.usage.costCny) || !integer(value.usage.inputTokens) || !integer(value.usage.outputTokens)
         || (value.unsettled != null && (!integer(value.unsettled.inputTokens) || !integer(value.unsettled.outputTokens) || !finite(value.unsettled.maxCostCny)))) throw Error('invalid-state');
-      return Object.fromEntries(['schema', 'id', 'method', 'state', 'reason', 'model', 'fingerprint', 'startedAt', 'endedAt', 'groups', 'limits', 'totals', 'requests', 'results', 'plannedByGroup', 'usage', 'unsettled', 'current']
+      return Object.fromEntries(['schema', 'id', 'method', 'state', 'reason', 'reasonDetail', 'model', 'fingerprint', 'startedAt', 'endedAt', 'groups', 'limits', 'totals', 'requests', 'results', 'plannedByGroup', 'usage', 'unsettled', 'current']
         .map((key) => [key, value[key]]));
     } catch (error) { this.loadError = error?.code !== 'ENOENT'; return null; }
   }

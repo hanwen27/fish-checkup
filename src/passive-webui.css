@@ -30,5 +30,28 @@
 .sc-pass-pill-ok { background: var(--sc-ok-bg); color: var(--sc-ok-fg); border: 1px solid var(--sc-ok-bd); }
 .sc-pass-pill-muted { background: var(--sc-tint-2); color: var(--sc-dim); border: 1px solid var(--sc-line); }
 .sc-pass-pill-warn { background: var(--sc-warn-bg); color: var(--sc-warn-fg); border: 1px solid var(--sc-warn-bd); }
+/* Memory Health Dashboard */
+.sc-mem-hero { border: 1px solid var(--sc-line); border-left: 4px solid #22c55e; border-radius: 12px; padding: 16px 18px; background: linear-gradient(135deg, var(--sc-ok-bg), var(--sc-bg-soft)); display: flex; flex-direction: column; gap: 10px; margin: 12px 0 14px; }
+.sc-mem-hero-warn { border-left-color: #f59e0b; background: linear-gradient(135deg, var(--sc-warn-bg), var(--sc-bg-soft)); }
+.sc-mem-hero-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.sc-mem-hero-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sc-mem-hero-title h3 { margin: 0; font-size: 17px; font-weight: 700; color: var(--sc-fg); }
+.sc-mem-hero-desc { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--sc-fg); opacity: .9; }
+.sc-mem-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.sc-mem-kpi-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.sc-mem-wall { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.sc-mem-card { border: 1px solid var(--sc-line); border-radius: 11px; padding: 14px 16px; background: var(--sc-bg); display: flex; flex-direction: column; gap: 8px; transition: border-color .16s ease, transform .16s ease; }
+.sc-mem-card:hover { border-color: var(--sc-line-hover); }
+.sc-mem-card-active { border-left: 3px solid #10b981; }
+.sc-mem-card-idle { opacity: .82; }
+.sc-mem-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.sc-mem-card-name { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.sc-mem-card-name strong { font-size: 14.5px; font-weight: 700; color: var(--sc-fg); }
+.sc-mem-card-name small { font-size: 11.5px; color: var(--sc-dim); }
+.sc-mem-card-badges { display: flex; gap: 6px; }
+.sc-mem-card-stat { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--sc-accent); padding: 6px 10px; border-radius: 7px; background: var(--sc-tint-1); }
+.sc-mem-stat-tag { font-size: 11px; font-weight: 500; color: var(--sc-dim); }
+.sc-mem-card-desc { margin: 0; font-size: 12px; line-height: 1.55; color: var(--sc-dim); }
+@media(max-width:900px) { .sc-mem-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media(max-width:760px) { .sc-pass-columns { grid-template-columns: 1fr; } .sc-pass-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media(max-width:420px) { .sc-pass-grid { grid-template-columns: 1fr; } .sc-pass-bar-row { grid-template-columns: 72px minmax(20px, 1fr) 98px; gap: 6px; } }

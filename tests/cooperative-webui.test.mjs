@@ -5,7 +5,7 @@ import { FakeDocument, makeCtx } from './_fake-dom.mjs';
 
 const walk = (node) => [node, ...node.children.flatMap(walk)];
 const button = (ctx, text) => walk(ctx.root).find((node) => node.tagName === 'BUTTON' && node.textContent === text);
-test('COO chain UI exposes unavailability without invoking ordinary cognition or fabricating plugin results', async () => {
+test('COO chain UI hides unavailable bridge tab without invoking ordinary cognition or fabricating plugin results', async () => {
   globalThis.document = new FakeDocument();
   const ctx = makeCtx({});
   const calls = [];
@@ -17,10 +17,7 @@ test('COO chain UI exposes unavailability without invoking ordinary cognition or
     throw Error('unexpected-method');
   };
   await panels.panels['deep-checkup'].mount(ctx);
-  await button(ctx, 'COO 链路验证').listeners.click[0]();
-  assert.match(ctx.root.textContent, /隔离运行桥尚未接入/);
-  assert.equal(button(ctx, '核算本次范围与 Token').disabled, true);
-  assert.equal(button(ctx, '读取插件清单').disabled, true);
+  assert.equal(button(ctx, 'COO 链路验证'), undefined);
   assert.doesNotMatch(ctx.root.textContent, /已安装.*鱼脑|第三方.*通过/);
   assert.deepEqual(calls, ['deepStatus', 'deepPreflight', 'cooperativeStatus']);
   ctx._abort();

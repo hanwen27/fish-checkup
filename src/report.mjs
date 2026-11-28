@@ -70,6 +70,55 @@ export function buildReport(snapshot, {
   // 一致性用「人话版」：不说「平均偏差 16.5」，说哪一轴对不上、怎么对不上。
   personality.consistency = buildConsistency(personality, lang);
   personality.profile.character = buildPersonalityConclusion(personality, lang);
+  // 优先匹配高辨识度性格插画与主观侧写评语
+  const VIBE_SCENE_MAP = {
+    'devoted-gravity': 'devoted-ribbon',
+    'jealous-lemon': 'jealous-glare',
+    'clingy-fish': 'clingy-hug',
+    'tsundere-fish': 'tsundere-pout',
+    'grudge-keeper': 'grudge-diary',
+    'smug-gremlin': 'smug-tease',
+    'soft-teary': 'teary-puppy',
+    'cozy-sleeper': 'lazy-blanket',
+    'deep-night': 'night-owl-coder',
+    'night-owl': 'night-owl-coder',
+    'night-only': 'night-owl-coder',
+    'quiet-but-there': 'shy-pillow',
+    'low-speak': 'shy-pillow',
+    'talky': 'chatterbox-star',
+    'long-winded-with-you': 'chatterbox-star',
+    'high-speak': 'chatterbox-star',
+    'cold-log': 'cool-tea',
+    'flat-mood': 'cool-tea',
+    'plays-cool': 'cool-tea',
+    'comes-anyway': 'spoiled-roll',
+    'asks-back': 'mischief-peek',
+    'early-bird': 'gentle-lantern',
+    'warm-wall': 'gentle-lantern',
+    'steady-handoff': 'protective-shield',
+    'rock-stable': 'protective-shield',
+    'many-tags': 'geek-blueprint',
+    'sharp-hit': 'geek-blueprint',
+    'big-memory': 'geek-blueprint',
+    'huge-memory': 'geek-blueprint',
+    'all-day': 'moonlight-promise',
+    'night-shift': 'moonlight-promise',
+    'peak-hour': 'foodie-cake',
+    'dropdown': 'daydream-bubble',
+  };
+  const vibeHit = (tagResult.tags ?? []).find((t) => VIBE_SCENE_MAP[t.id]);
+  if (vibeHit && personality.profile.scene) {
+    personality.profile.scene = VIBE_SCENE_MAP[vibeHit.id];
+  }
+  const vibeTag = (tagResult.tags ?? []).find((t) => t.group === 'vibe');
+  const warmCombo = (tagResult.combos ?? []).find((c) => c.id !== 'cold-heart');
+  const subjective = vibeTag?.roast || warmCombo?.blurb || (tagResult.tags?.length ? tagResult.verdict : '');
+  if (subjective && lang === 'zh') {
+    personality.profile.subjectiveNote = subjective;
+  }
+  if (Array.isArray(snapshot?.activity?.topPhrases) && snapshot.activity.topPhrases.length) {
+    personality.profile.topPhrases = snapshot.activity.topPhrases;
+  }
 
   return {
     language: lang,

@@ -114,31 +114,85 @@ export function makePassivePanel(view) {
       body.append(details('数据覆盖与口径', [u.limits, `usage 来源：${u.state}；采样截断：${u.source.limited ? '是' : '否'}；坏行 ${u.source.bad}；无效时间 ${u.source.invalidTime}；明确 ID 去重 ${u.source.duplicates}。`, `工具活动来源：${a.state}；扫描 ${a.files} 份日志；采样上限触发：${a.limited ? '是' : '否'}；不可读 ${a.unreadable ?? 0} 份；坏行 ${a.bad ?? 0}。`, '用量日志最多读取末尾 8 MiB／20,000 行；工具日志最多 256 个运行目录、每份末尾 256 KiB／1,000 行。达到上限时只代表窗口内样本。', '没有来源分块、可靠分词与请求关联证据时，不显示精确插件 Token 榜、前缀 Token 或记忆注入 Token。']));
     }
     function renderMemory() {
-      const m = data.memory; body.append(box(m.summary));
+      const m = data.memory;
+      const ov = m.overview ?? {};
       const pluginRows = m.rows.filter((r) => r.id !== 'workspace-storage');
       const enabledCount = pluginRows.filter((r) => r.enabled === true).length;
       const wsRow = m.rows.find((r) => r.id === 'workspace-storage');
-      body.append(tiles(
-        tile('宿主清单', ({ ready: '已实时读取', 'not-read': '尚未读取', unavailable: '宿主未提供' })[m.inventoryState] ?? '未能核实', '来自本机宿主扩展接口'),
-        tile('已识别记忆插件', m.inventoryState === 'ready' ? `${pluginRows.length} 个` : '待读取', m.inventoryState === 'ready' ? `其中已启用 ${enabledCount} 个` : '需读取宿主清单'),
-        tile('本地记忆存储', wsRow?.status === 'observed' ? '读写正常' : '未就绪', wsRow?.evidence ?? '工作区记忆目录'),
-      ));
-      const refresh = button('刷新宿主插件清单', async () => {
+      const wsOk = wsRow?.status === 'observed';
+      const pill = (text, tone = 'muted') => el('span', `sc-pass-pill sc-pass-pill-${tone}`, text);
+
+      // 1. 顶部结论 Hero 卡（一眼看懂记忆健康、主力方案、活跃度）
+      const hero = el('section', `sc-mem-hero sc-mem-hero-${wsOk ? 'ok' : 'warn'}`);
+      const heroTop = el('div', 'sc-mem-hero-top');
+      const heroTitle = el('div', 'sc-mem-hero-title');
+      heroTitle.append(
+        pill(ov.badge ?? (wsOk ? '记忆状态正常' : '需检查目录'), wsOk ? 'ok' : 'warn'),
+        el('h3', '', ov.modeLabel ?? 'Coo 原生工作区记忆'),
+      );
+      const refresh = button('刷新清单', async () => {
         if (busy) return; busy = true; refresh.disabled = true;
         try { const result = await ctx.invoke('passiveInventory', []); notice = result.ok ? '已刷新本机宿主插件清单。' : '当前宿主未提供可用清单接口，安装与使用情况保持未知。'; ctx.ui?.toast?.(notice, 'plain'); await load(false); }
         catch { notice = '读取清单失败；不据此判断插件未安装。'; render(); }
         finally { busy = false; refresh.disabled = false; }
-      }); body.append(refresh);
-      const pill = (text, tone = 'muted') => el('span', `sc-pass-pill sc-pass-pill-${tone}`, text);
-      body.append(card('记忆来源与近期活跃', table(['来源／版本', '状态', '启用', '近期活跃与说明'], m.rows.map((r) => [
-        r.version ? `${r.name}\n${r.version}` : r.name,
-        pill(({ listed: '已安装', observed: '文件可读', missing: '路径缺失', unreadable: '读取失败', 'not-directory': '不是目录' })[r.status] ?? '未知', r.status === 'observed' || r.status === 'listed' ? 'ok' : 'warn'),
-        pill(r.enabled === null ? '未知' : r.enabled ? '已启用' : '已禁用', r.enabled === true ? 'ok' : 'muted'),
-        `${r.evidence}。${r.detail}`,
-      ]))));
-      if (m.telemetry) { const t = m.telemetry; body.append(card(t.name, tiles(tile('条目样本', format(t.count)), tile('检索次数', format(t.retrievals)), tile('返回候选的比例', percent(t.hitRate)), tile('标注为已注入的比例', percent(t.injectedRate)), tile('平均检索耗时', t.avgMs === null ? '未知' : `${format(t.avgMs)} ms`)), t.detail)); }
-      else body.append(box('没有可用的兼容记忆日志统计。这可能是原生实现、其它插件格式、尚无活动或日志不可读，不能直接判定没有记忆或记忆故障。'));
-      body.append(details('如何理解记忆状态', m.limitations));
+      });
+      heroTop.append(heroTitle, refresh);
+      const heroDesc = el('p', 'sc-mem-hero-desc', ov.headline ?? m.summary);
+      const heroChips = el('div', 'sc-mem-chips');
+      heroChips.append(
+        el('span', 'sc-deep-chip', m.inventoryState === 'ready' ? `已扫描 ${ov.totalExtensions ?? 0} 个扩展` : '宿主清单未读取'),
+        el('span', 'sc-deep-chip', `记忆插件 ${enabledCount} 启用 / ${pluginRows.length} 已装`),
+        el('span', 'sc-deep-chip', wsOk ? `本地可读 ${m.workspace?.files ?? 0}${m.workspace?.limited ? '+' : ''} 份文件` : '本地目录未就绪'),
+      );
+      hero.append(heroTop, heroDesc, heroChips);
+      body.append(hero);
+
+      // 2. 四项高含金量核心指标
+      const kpiGrid = el('div', 'sc-pass-grid sc-mem-kpi-grid');
+      kpiGrid.append(
+        tile('本地原生记忆', wsOk ? '读写正常' : '未就绪', wsRow?.evidence ?? '工作区记忆目录'),
+        tile('已启用记忆插件', m.inventoryState === 'ready' ? `${enabledCount} 个` : '未知', m.inventoryState === 'ready' ? (enabledCount > 0 ? (ov.enabledNames ?? []).join('、') : '当前仅使用原生工作区记忆') : '宿主清单未读取，安装状态未知'),
+        tile('近窗口记忆调用', ov.pluginCalls > 0 ? `${format(ov.pluginCalls)} 次` : (enabledCount > 0 ? '0 次' : '原生直读'), ov.pluginFailures > 0 ? `其中失败 ${ov.pluginFailures} 次` : (enabledCount > 0 ? '来自已启用记忆插件工具记录' : '原生记忆由 Coo 直接读写')),
+        tile('近窗口对话交接', Number.isFinite(ov.handoffsCount) ? `${format(ov.handoffsCount)} 次` : '未知', '长对话换页留下的交接笔记数'),
+      );
+      body.append(kpiGrid);
+
+      // 3. 记忆来源精致卡片墙（取代冷冰冰表格）
+      const wall = el('div', 'sc-mem-wall');
+      for (const r of m.rows) {
+        const isNative = r.id === 'workspace-storage';
+        const isActive = isNative ? wsOk : r.enabled === true;
+        const itemCard = el('article', `sc-mem-card ${isActive ? 'sc-mem-card-active' : 'sc-mem-card-idle'}`);
+        const head = el('div', 'sc-mem-card-head');
+        const nameWrap = el('div', 'sc-mem-card-name');
+        nameWrap.append(
+          el('strong', '', r.name),
+          ...(r.version ? [el('small', '', `v${r.version}`)] : [el('small', '', '内置原生')]),
+        );
+        const badges = el('div', 'sc-mem-card-badges');
+        badges.append(
+          pill(isNative ? (wsOk ? '文件可读' : '目录异常') : (r.enabled === true ? '主力启用中' : r.enabled === false ? '已装未启用' : '状态未知'), isActive ? 'ok' : 'muted'),
+        );
+        head.append(nameWrap, badges);
+        const statLine = el('div', 'sc-mem-card-stat');
+        if (isNative) {
+          statLine.append(el('span', '', wsRow?.evidence ?? '工作区目录'), el('span', 'sc-mem-stat-tag', '只读核验'));
+        } else {
+          statLine.append(
+            el('span', '', r.calls > 0 ? `近 ${data.sampleDays} 天调用 ${format(r.calls)} 次${r.failures ? ` · 失败 ${r.failures} 次` : ''}` : '近窗口暂无工具调用'),
+            ...(r.medianMs ? [el('span', 'sc-mem-stat-tag', `中位 ${format(Math.round(r.medianMs))} ms`)] : []),
+          );
+        }
+        itemCard.append(head, statLine, el('p', 'sc-mem-card-desc', r.detail));
+        wall.append(itemCard);
+      }
+      body.append(card('记忆来源与近期活跃', wall, '只展示本地原生存储与已识别的记忆类扩展，不含无关插件。'));
+
+      if (m.telemetry) {
+        const t = m.telemetry;
+        body.append(card(t.name, tiles(tile('条目样本', format(t.count)), tile('检索次数', format(t.retrievals)), tile('返回候选的比例', percent(t.hitRate)), tile('标注为已注入的比例', percent(t.injectedRate)), tile('平均检索耗时', t.avgMs === null ? '未知' : `${format(t.avgMs)} ms`)), t.detail));
+      }
+      body.append(details('观测口径与隐私说明', [...m.limitations, '若仅使用 Coo 原生工作区记忆且本地文件读写正常，无需额外安装第三方记忆插件。']));
     }
     function renderContext() {
       const c = data.context; body.append(box(c.summary));

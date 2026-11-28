@@ -45,20 +45,28 @@ export interface DeepExecutor {
     costCny: number;
     /** Include failed attempts in accounting. False means transport/provider failure, not a wrong answer. */
     ok: boolean;
+    /** Optional sanitized status/error summary when ok is false (never contains secrets or user data). */
+    detail?: string;
   }>;
 }
 
-export function resolveCheckupHome(dataDir: string, homeDir?: string): string {
+export function resolveCheckupHome(dataDir: string, homeDir?: string, botDir?: string): string {
   const hasCfg = (dir: string) => {
     try { return Boolean(dir) && existsSync(join(dir, 'companion', 'config.json')); } catch { return false; }
   };
+  const walkUp = (start?: string): string | null => {
+    if (!start) return null;
+    for (let dir = resolve(start); ; dir = dirname(dir)) {
+      if (hasCfg(dir)) return dir;
+      const siblingHome = join(dirname(dir), 'home');
+      if (siblingHome !== dir && hasCfg(siblingHome)) return siblingHome;
+      if (dirname(dir) === dir) break;
+    }
+    return null;
+  };
   if (homeDir && hasCfg(resolve(homeDir))) return resolve(homeDir);
-  for (let dir = resolve(dataDir); ; dir = dirname(dir)) {
-    if (hasCfg(dir)) return dir;
-    const siblingHome = join(dirname(dir), 'home');
-    if (siblingHome !== dir && hasCfg(siblingHome)) return siblingHome;
-    if (dirname(dir) === dir) break;
-  }
+  const fromLocal = walkUp(dataDir) || walkUp(botDir) || walkUp(process.cwd());
+  if (fromLocal) return fromLocal;
   const envCandidates = [process.env.COO_HOME, process.env.CORTICO_HOME].filter((d): d is string => Boolean(d)).map((d) => resolve(d));
   const osCandidates = [
     join(homedir(), '.coo'),
@@ -77,8 +85,14 @@ export function resolveCheckupHome(dataDir: string, homeDir?: string): string {
 
 type IsolatedCase = { messages: Array<{ role: string; content: string }>; maxOutputTokens: number };
 
-export function createBuiltinIsolatedExecutor({ dataDir, homeDir }: { dataDir: string; homeDir?: string }): DeepExecutor {
-  const home = resolveCheckupHome(dataDir, homeDir);
+function sanitizeErrorDetail(status: number, raw?: unknown): string {
+  const text = typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim() : '';
+  const safe = text.replace(/(?:Bearer\s+|sk-)[A-Za-z0-9._-]{6,}/gi, '[redacted]').slice(0, 140);
+  return safe ? `HTTP ${status}: ${safe}` : `HTTP ${status}`;
+}
+
+export function createBuiltinIsolatedExecutor({ dataDir, homeDir, botDir }: { dataDir: string; homeDir?: string; botDir?: string }): DeepExecutor {
+  const home = resolveCheckupHome(dataDir, homeDir, botDir);
   const capabilities = { isolated: true, noTools: true, noMemoryWrites: true, singleAttempt: true, hardLimits: true, usage: true, abort: true } as const;
   const dataScope = '仅发送本次合成测试消息；无附加系统提示、工具、主会话或持久化记忆读写；单次请求，无重试。Token 按 UTF-8 字节保守预留；费用未知，0 仅为记账占位，不代表免费或费用上限。';
   function config() {
@@ -105,7 +119,7 @@ export function createBuiltinIsolatedExecutor({ dataDir, homeDir }: { dataDir: s
       if (e instanceof Error && e.message === 'provider-protocol-unsupported') throw e;
       throw Error('provider-endpoint-unavailable');
     }
-    let secret = typeof value.secret === 'string' ? value.secret.trim() : '';
+    let secret = typeof value.secret === 'string' ? value.secret.trim() : (typeof value.apiKey === 'string' ? value.apiKey.trim() : '');
     const readEnvKey = (filePath: string, keyName: string): string => {
       try {
         const env = readFileSync(filePath, 'utf8');
@@ -115,7 +129,11 @@ export function createBuiltinIsolatedExecutor({ dataDir, homeDir }: { dataDir: s
       } catch { return ''; }
     };
     const resolveEnvName = (keyName: string): string =>
-      readEnvKey(join(dir, '.env'), keyName) || readEnvKey(join(home, 'companion', '.env'), keyName) || (process.env[keyName]?.trim() ?? '');
+      readEnvKey(join(dir, '.env'), keyName)
+      || readEnvKey(join(home, 'companion', '.env'), keyName)
+      || readEnvKey(join(home, '.env'), keyName)
+      || readEnvKey(join(dirname(home), '.env'), keyName)
+      || (process.env[keyName]?.trim() ?? '');
     if (secret && /^[A-Za-z_][A-Za-z0-9_]{2,}$/.test(secret)) {
       const resolved = resolveEnvName(secret);
       if (resolved) secret = resolved;
@@ -159,20 +177,35 @@ export function createBuiltinIsolatedExecutor({ dataDir, homeDir }: { dataDir: s
       const required = reserve(testCase, settings);
       if (required.inputTokens > reservation.inputTokens || required.outputTokens !== reservation.outputTokens || reservation.maxCostCny < 0) throw Error('reservation-or-context-unavailable');
       signal.throwIfAborted();
+      const useCompletionCap = /^(?:o[134](?:-|$)|gpt-5)/i.test(settings.model.trim());
+      const payload: Record<string, unknown> = {
+        model: settings.model,
+        messages: (testCase as IsolatedCase).messages.map(({ role, content }) => ({ role, content })),
+        stream: false,
+      };
+      if (useCompletionCap) payload.max_completion_tokens = required.outputTokens;
+      else payload.max_tokens = required.outputTokens;
       const response = await fetch(settings.endpoint, {
         method: 'POST', redirect: 'error', signal,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.secret}` },
-        body: JSON.stringify({ model: settings.model, messages: (testCase as IsolatedCase).messages.map(({ role, content }) => ({ role, content })), max_tokens: required.outputTokens, stream: false }),
+        body: JSON.stringify(payload),
       });
-      let value;
-      try { value = await response.json(); } catch { throw Error('provider-response-invalid'); }
+      const clientRejected = !response.ok && [400, 401, 403, 404].includes(response.status);
+      let value: any;
+      try { value = await response.json(); } catch {
+        if (clientRejected) {
+          return { ok: false, text: '', inputTokens: 0, outputTokens: 0, costCny: 0, detail: sanitizeErrorDetail(response.status, '接口返回非 JSON 响应（请检查 Base URL 路径）') };
+        }
+        throw Error('provider-response-invalid');
+      }
       const usage = value?.usage;
       const text = value?.choices?.[0]?.message?.content;
-      const clientRejected = !response.ok && [400, 401, 403, 404].includes(response.status);
       const inTok = Number.isSafeInteger(usage?.prompt_tokens) && usage.prompt_tokens >= 0 ? usage.prompt_tokens : (clientRejected ? 0 : NaN);
       const outTok = Number.isSafeInteger(usage?.completion_tokens) && usage.completion_tokens >= 0 ? usage.completion_tokens : (clientRejected ? 0 : NaN);
-      return { ok: response.ok && typeof text === 'string', text: typeof text === 'string' ? text : '',
-        inputTokens: inTok, outputTokens: outTok, costCny: 0 };
+      const ok = response.ok && typeof text === 'string';
+      const errMsg = value?.error?.message ?? value?.message ?? (typeof value?.error === 'string' ? value.error : '');
+      const detail = ok ? undefined : (!response.ok ? sanitizeErrorDetail(response.status, errMsg) : '响应缺少有效文本内容');
+      return { ok, text: typeof text === 'string' ? text : '', inputTokens: inTok, outputTokens: outTok, costCny: 0, ...(detail ? { detail } : {}) };
     },
   };
 }

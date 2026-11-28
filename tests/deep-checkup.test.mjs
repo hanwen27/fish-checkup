@@ -31,7 +31,7 @@ function launch(engine, options) {
 
 test('synthetic checks distinguish in-request facts from persistent memory and score exact JSON', () => {
   const cases = makeDeepCases('stable-test-seed');
-  assert.equal(cases.length, 16);
+  assert.equal(cases.length, 20);
   assert.equal(cases.filter((item) => item.group === 'context').length, 9);
   for (const item of cases) assert.equal(scoreDeepCase(item, JSON.stringify(item.expected)).outcome, 'pass');
   assert.equal(scoreDeepCase(cases[0], '```json\n{}\n```').outcome, 'fail');
@@ -108,15 +108,15 @@ test('completed run persists only redacted evidence and keeps untested memory ex
   const { engine, count, saved } = fixture();
   assert.equal(launch(engine).ok, true);
   await engine.task;
-  assert.equal(count(), 16);
+  assert.equal(count(), 20);
   assert.equal(engine.run.state, 'completed');
-  assert.equal(engine.run.usage.inputTokens, 1600);
-  assert.equal(engine.run.usage.outputTokens, 160);
+  assert.equal(engine.run.usage.inputTokens, 2000);
+  assert.equal(engine.run.usage.outputTokens, 200);
   assert.equal(engine.run.unsettled, null);
   const serialized = JSON.stringify(saved());
   assert.doesNotMatch(serialized, /archive_code|唯一有效记录|rule_fixture|messages|"text"/);
   const report = deepReport(engine.run);
-  assert.equal(report.groups.length, 3);
+  assert.equal(report.groups.length, 4);
   assert.ok(report.groups.every((item) => item.outcome === 'observed-pass' && item.confidence === 'limited'));
   assert.ok(report.untested.some((item) => item.includes('持久记忆')));
   assert.equal(report.memoryScope.testedMemorySystemCount, 0);

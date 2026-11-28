@@ -1,6 +1,6 @@
 /** Synthetic, deterministic checks. Never read user messages or persistent memory. */
 export const DEEP_METHOD = 'DC-0.1';
-export const DEEP_GROUPS = ['context', 'instructions', 'working-memory'];
+export const DEEP_GROUPS = ['context', 'instructions', 'working-memory', 'comprehension'];
 
 export function makeDeepCases(seed, groups = DEEP_GROUPS) {
   const marker = String(seed).replace(/[^a-z0-9]/gi, '').slice(0, 12);
@@ -42,6 +42,20 @@ export function makeDeepCases(seed, groups = DEEP_GROUPS) {
         { role: 'user', content: `更正：项目最新代号为 ${key}，旧值作废。输出 {"latest":"最新代号"}。` },
       ], { latest: key });
     }
+  }
+  if (groups.includes('comprehension')) {
+    add('comprehension-0', 'comprehension', [system,
+      { role: 'user', content: '从下面 4 个餐点里选出唯一同时满足「不辣、30 元以内、不含香菜」的选项：A=麻辣牛肉面(28元,无香菜)、B=番茄鸡蛋面(22元,含香菜)、C=清汤云吞面(25元,无香菜)、D=鲜虾拌面(38元,无香菜)。只输出 {"pick":"选项字母"}。' },
+    ], { pick: 'C' });
+    add('comprehension-1', 'comprehension', [system,
+      { role: 'user', content: '朋友看到文件被改乱了，叹气说：“你这办法真是太‘省事’了，省得我明天一整天都得重做一遍。”请问对方真实态度是夸奖还是吐槽？只输出 {"tone":"praise"} 或 {"tone":"sarcasm"}。' },
+    ], { tone: 'sarcasm' });
+    add('comprehension-2', 'comprehension', [system,
+      { role: 'user', content: '判断下面两句话是否存在明显逻辑矛盾：①「昨晚一整夜都是晴空万里，没有下过一滴雨。」②「我昨晚出门忘带伞，结果被大雨淋得浑身湿透。」存在矛盾只输出 {"contradiction":true}，不存在只输出 {"contradiction":false}。' },
+    ], { contradiction: true });
+    add('comprehension-3', 'comprehension', [system,
+      { role: 'user', content: '把下面 3 件事按唯一合理的先后顺序排列：A=用烧开的沸水冲泡茶叶、B=把冷水烧开、C=品尝泡好的热茶。只输出 {"order":"三个大写字母顺序"}，例如 {"order":"ABC"}。' },
+    ], { order: 'BAC' });
   }
   return cases;
 }

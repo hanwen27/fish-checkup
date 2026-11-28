@@ -105,6 +105,8 @@
 .sc-deep-problem-info { display:flex; flex-direction:column; gap:2px; min-width:0; }
 .sc-deep-problem-info strong { font-size:13px; color:var(--sc-fg); }
 .sc-deep-problem-info p { margin:0; font-size:12.5px; line-height:1.5; color:var(--sc-dim); }
+.sc-deep-problem-how { color:var(--sc-fg) !important; opacity:.88; }
+.sc-deep-kpi-how { margin:0; padding:6px 9px; border-radius:6px; font-size:12px; line-height:1.5; color:var(--sc-dim); background:var(--sc-tint-1); border:1px solid var(--sc-line); }
 .sc-deep-kpi-err { margin:0; padding:6px 9px; border-radius:6px; font-size:12px; line-height:1.45; color:var(--sc-bad-fg); background:var(--sc-bad-bg); border:1px solid var(--sc-bad-bd); }
 /* Plugin Consumption Donut Chart & Chinese Labels */
 .sc-pass-plugin-wrap { display:flex; flex-direction:column; gap:16px; }

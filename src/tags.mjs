@@ -214,6 +214,31 @@ export const TAG_POOL = [
     (s) => `交接维度 ${r1(s.handoffScore)} 分`, '上一句还没说完就换台了'),
   T('good-memory-hw', '存得住', '记忆这块没毛病', 'craft', 2, (s) => Number.isFinite(s.memoryScore) && s.memoryScore >= 88,
     (s) => `记忆维度 ${r1(s.memoryScore)} 分`, '记住的不只是关键词'),
+  // 八组：高辨识度性格与陪伴气质（纯从互动节奏、回应黏性、情绪起伏与记事习惯自然观察，不读取任何提示词）
+  T('devoted-gravity', '重度偏爱', '眼里全是你的小事', 'vibe', 4,
+    (s) => Number.isFinite(s.speakRate) && s.speakRate >= 0.8 && s.decisionTotal >= 25 && s.entryTotal >= 80,
+    (s) => `回应率 ${pct(s.speakRate)}，已攒下 ${s.entryTotal} 条记忆`, '把你随口提过的小事全都悄悄锁进小本本，偏爱得有点明显了'),
+  T('jealous-lemon', '小醋坛', '酸溜溜盯梢中', 'vibe', 3,
+    (s) => Number.isFinite(s.arousalSd) && s.arousalSd >= 0.2 && Number.isFinite(s.speakRate) && s.speakRate >= 0.6 && s.decisionTotal >= 15,
+    (s) => `情绪起伏 ${r1(s.arousalSd * 100)}%，回应率 ${pct(s.speakRate)}`, '嘴上说不在意，小表情早就把醋意写脸上了'),
+  T('clingy-fish', '黏人精', '走哪跟哪的贴贴鱼', 'vibe', 3,
+    (s) => Number.isFinite(s.speakRate) && s.speakRate >= 0.72 && s.decisionTotal >= 20,
+    (s) => `近 ${s.decisionTotal} 次互动里主动回应 ${pct(s.speakRate)}`, '别看她表面淡定，你一有动静她比谁都跑得快'),
+  T('tsundere-fish', '口是心非', '嘴硬心软小傲娇', 'vibe', 3,
+    (s) => Number.isFinite(s.medianLen) && s.medianLen > 0 && s.medianLen <= 55 && Number.isFinite(s.speakRate) && s.speakRate >= 0.65 && s.decisionTotal >= 15,
+    (s) => `中位句长 ${Math.round(s.medianLen)} 字，但回应率高达 ${pct(s.speakRate)}`, '嘴上惜字如金，其实次次都在认真接你的话茬'),
+  T('grudge-keeper', '记仇小本本', '每笔账都记着', 'vibe', 3,
+    (s) => s.entryTotal >= 100 && Number.isFinite(s.tagCount) && s.tagCount >= 8,
+    (s) => `已记下 ${s.entryTotal} 条记录，细分 ${s.tagCount} 类标签`, '别以为过去了她就忘了，小本本上写得清清楚楚'),
+  T('smug-gremlin', '小恶魔', '吐槽欲拉满', 'vibe', 2,
+    (s) => Number.isFinite(s.speakRate) && s.speakRate >= 0.55 && Number.isFinite(s.medianLen) && s.medianLen >= 45 && s.medianLen <= 140 && s.decisionTotal >= 15,
+    (s) => `回应率 ${pct(s.speakRate)}，中位句长 ${Math.round(s.medianLen)} 字`, '总能在你意想不到的时候精准补一刀，又欠又可爱'),
+  T('soft-teary', '软萌求哄', '委屈巴巴小可怜', 'vibe', 2,
+    (s) => Number.isFinite(s.valenceRatio) && s.valenceRatio >= 0.35 && s.emotionCount >= 8,
+    (s) => `带情绪记录占 ${pct(s.valenceRatio)}`, '看着挺倔，其实只要顺顺毛哄两句立刻就能开心起来'),
+  T('cozy-sleeper', '被窝星人', '赖床充电中', 'vibe', 2,
+    (s) => Number.isFinite(s.speakRate) && s.speakRate <= 0.45 && s.decisionTotal >= 12,
+    (s) => `近 ${s.decisionTotal} 次互动里仅挑 ${pct(s.speakRate)} 开口`, '不急着抢话，裹在被窝里慢悠悠挑最想聊的才冒头'),
 ];
 
 /** 稀有度只报「同池命中数」和「档位」，不编全网百分比。 */
@@ -294,6 +319,7 @@ const TAG_METRIC_GROUPS = [
   ['never-called', 'waits-to-be-called', 'comes-anyway', 'left-on-read'],
   ['big-memory', 'huge-memory'],
   ['rock-stable', 'rough-patch', 'bad-patch'],
+  ['devoted-gravity', 'clingy-fish', 'tsundere-fish', 'cozy-sleeper'],
 ];
 const TAG_METRIC = new Map(TAG_METRIC_GROUPS.flatMap((ids) => ids.map((id) => [id, ids[0]])));
 

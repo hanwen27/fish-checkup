@@ -108,14 +108,14 @@ export class CheckupWorld implements World {
     this.cfg = opts.cfg;
     this.botDir = opts.botDir;
     this.dataDir = opts.dataDir;
-    this.homeDir = resolveCheckupHome(opts.dataDir, opts.homeDir);
+    this.homeDir = resolveCheckupHome(opts.dataDir, opts.homeDir, opts.botDir);
     this.memoryDir = opts.memoryDir;
     this.botName = opts.botName ?? '';
     this.packageDir = opts.packageDir;
     this.timezone = opts.timezone;
     this.stateDirOverride = opts.stateDirOverride ?? null;
     this.deep = new DeepCheckup({
-      executor: opts.deepExecutor ?? createBuiltinIsolatedExecutor({ dataDir: this.dataDir, homeDir: this.homeDir }),
+      executor: opts.deepExecutor ?? createBuiltinIsolatedExecutor({ dataDir: this.dataDir, homeDir: this.homeDir, botDir: this.botDir }),
       model: () => this.modelName(),
       contextWindow: () => this.contextWindow(),
       stateDir: this.stateDir(),
@@ -424,7 +424,8 @@ export class CheckupWorld implements World {
       if (method === 'deepStatus') {
         if (!this.passiveInventoryState) await this.readHostInventory();
         const st = this.deep.status();
-        return { ...st, memoryScope: deepMemoryScope(this.passiveInventoryState) };
+        const scope = deepMemoryScope(this.passiveInventoryState);
+        return { ...st, memoryScope: scope, ...(st.report ? { report: { ...st.report, memoryScope: scope } } : {}) };
       }
       if (method === 'deepPreflight') {
         if (!this.passiveInventoryState) await this.readHostInventory();
@@ -436,7 +437,10 @@ export class CheckupWorld implements World {
         return this.deep.start(args?.[0] ?? {});
       }
       if (method === 'deepStop') return this.deep.stop();
-      if (method === 'deepText') return { ok: true, text: deepReportText(this.deep.run) };
+      if (method === 'deepText') {
+        if (!this.passiveInventoryState) await this.readHostInventory();
+        return { ok: true, text: deepReportText(this.deep.run, this.passiveInventoryState) };
+      }
       if (method === 'cooperativeStatus') return this.cooperative.status();
       if (method === 'cooperativeInventory') return this.readHostInventory();
       if (method === 'cooperativePreflight') {
